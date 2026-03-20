@@ -1,0 +1,12 @@
+name: DH
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - numpy>=1.26,<3
+  - matplotlib>=3.8,<4
+  - pillow>=10,<12
+  - pip:
+      - pybullet>=3.2.6
