@@ -14,6 +14,9 @@ from dual_arm_sim import (  # noqa: E402
     JOINT_LIMITS_EXAMPLE,
     MDH_PARAMS_EXAMPLE,
     MODEL_SPEC,
+    OFFICIAL_POE_AXIS_POINTS,
+    OFFICIAL_POE_M,
+    OFFICIAL_POE_SLIST,
     OFFICIAL_SOURCES,
     DualArmSystem,
     RobotArm6DOF,
@@ -30,6 +33,11 @@ class TestRobotArm6DOF(unittest.TestCase):
             name="test",
             mdh_params=MDH_PARAMS_EXAMPLE,
             joint_limits=JOINT_LIMITS_EXAMPLE,
+            kinematics_mode="poe",
+            poe_home_m=OFFICIAL_POE_M,
+            poe_slist=OFFICIAL_POE_SLIST,
+            poe_axis_points=OFFICIAL_POE_AXIS_POINTS,
+            joint_names=MODEL_SPEC["joint_order"],
         )
 
     def test_forward_kinematics_output_shape(self) -> None:
@@ -42,8 +50,8 @@ class TestRobotArm6DOF(unittest.TestCase):
     def test_end_effector_reach_within_expected_range(self) -> None:
         p = self.arm.end_effector_position([0.0] * 6)
         reach_xy = math.sqrt(p[0] * p[0] + p[1] * p[1])
-        self.assertGreater(reach_xy, 0.70)
-        self.assertLess(reach_xy, 0.90)
+        self.assertGreater(reach_xy, 0.50)
+        self.assertLess(reach_xy, 0.65)
 
     def test_inverse_kinematics_position(self) -> None:
         target = [0.55, 0.05, 0.20]
@@ -60,6 +68,11 @@ class TestDualArmSystem(unittest.TestCase):
             mdh_params=MDH_PARAMS_EXAMPLE,
             joint_limits=JOINT_LIMITS_EXAMPLE,
             arm_offset=ARM_OFFSET,
+            kinematics_mode="poe",
+            poe_home_m=OFFICIAL_POE_M,
+            poe_slist=OFFICIAL_POE_SLIST,
+            poe_axis_points=OFFICIAL_POE_AXIS_POINTS,
+            joint_names=MODEL_SPEC["joint_order"],
         )
 
     def test_base_offset(self) -> None:
@@ -100,6 +113,12 @@ class TestDualArmSystem(unittest.TestCase):
                 place_pos=[2.1, 2.1, 2.1],
                 strict_ik=True,
             )
+
+    def test_joint_axis_mode_report_matches_aloha_modes(self) -> None:
+        report = self.dual.joint_axis_mode_report()
+        self.assertIn("waist: rotate(z)", report["left"])
+        self.assertIn("shoulder: pitch(y)", report["left"])
+        self.assertIn("forearm_roll: roll(x)", report["left"])
 
 
 class TestOfficialModelConfig(unittest.TestCase):

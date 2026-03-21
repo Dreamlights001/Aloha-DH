@@ -10,6 +10,8 @@ import math
 from typing import Any, Dict, List, Tuple
 
 MDHRow = Tuple[float, float, float, float]
+Twist = Tuple[float, float, float, float, float, float]
+Point3 = Tuple[float, float, float]
 
 OFFICIAL_SOURCES = {
     "aloha_vx300s_6dof": "https://docs.trossenrobotics.com/interbotix_xsarms_docs/specifications/avx300s.html",
@@ -20,6 +22,7 @@ OFFICIAL_SOURCES = {
 ARM_MODELS: Dict[str, Dict[str, Any]] = {
     "aloha_vx300s_6dof": {
         "display_name": "ALOHA ViperX-300 6DOF",
+        # Order follows the official 6DOF PoE Slist specification.
         "joint_order": (
             "waist",
             "shoulder",
@@ -28,13 +31,13 @@ ARM_MODELS: Dict[str, Dict[str, Any]] = {
             "wrist_angle",
             "wrist_rotate",
         ),
-        # Source: avx300s official specifications page.
+        # Source: avx300s official specifications page (re-ordered to match joint_order above).
         "joint_limits_deg": [
             (-180.0, 180.0),
-            (-108.0, 114.0),
-            (-123.0, 92.0),
+            (-101.0, 101.0),
+            (-101.0, 92.0),
             (-180.0, 180.0),
-            (-100.0, 123.0),
+            (-107.0, 130.0),
             (-180.0, 180.0),
         ],
         # Source: avx300s arm sections table.
@@ -55,15 +58,41 @@ ARM_MODELS: Dict[str, Dict[str, Any]] = {
         },
         # Source: avx300s gripper opening table.
         "gripper_opening_mm": {
-            "min": 0.0,
+            "min": 42.0,
             "max": 116.0,
         },
         # The base-to-shoulder z offset is from official kinematics constants used on VX300S docs.
         "base_shoulder_offset_m": 0.12705,
+        # Source: vx300s kinematic properties (PoE M matrix and Slist).
+        "poe_home_m": (
+            (1.0, 0.0, 0.0, 0.536494),
+            (0.0, 1.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0, 0.42705),
+            (0.0, 0.0, 0.0, 1.0),
+        ),
+        "poe_slist": (
+            (0.0, 0.0, 1.0, 0.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0, -0.12705, 0.0, 0.0),
+            (0.0, 1.0, 0.0, -0.42705, 0.0, 0.05955),
+            (1.0, 0.0, 0.0, 0.0, 0.42705, 0.0),
+            (0.0, 1.0, 0.0, -0.42705, 0.0, 0.35955),
+            (1.0, 0.0, 0.0, 0.0, 0.42705, 0.0),
+        ),
+        # Preferred points on each joint axis for visualization continuity.
+        # These points do not affect FK math; they only avoid visual fold-back on collinear roll axes.
+        "poe_axis_points": (
+            (0.0, 0.0, 0.0),         # waist
+            (0.0, 0.0, 0.12705),     # shoulder
+            (0.05955, 0.0, 0.42705), # elbow
+            (0.35955, 0.0, 0.42705), # forearm roll
+            (0.35955, 0.0, 0.42705), # wrist angle
+            (0.536494, 0.0, 0.42705),# wrist rotate
+        ),
     }
 }
 
 DEFAULT_ARM_MODEL = "aloha_vx300s_6dof"
+KINEMATICS_DEFAULT = "poe"
 
 
 def joint_limits_deg_to_rad(joint_limits_deg: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
@@ -111,6 +140,9 @@ MODEL_SPEC = get_default_model_spec()
 # Runtime defaults used by the rest of the simulation package.
 MDH_PARAMS_EXAMPLE: List[MDHRow] = build_mdh_params_from_official_specs(MODEL_SPEC)
 JOINT_LIMITS_EXAMPLE: List[Tuple[float, float]] = joint_limits_deg_to_rad(MODEL_SPEC["joint_limits_deg"])
+OFFICIAL_POE_M: List[List[float]] = [list(row) for row in MODEL_SPEC["poe_home_m"]]
+OFFICIAL_POE_SLIST: List[Twist] = [tuple(row) for row in MODEL_SPEC["poe_slist"]]
+OFFICIAL_POE_AXIS_POINTS: List[Point3] = [tuple(row) for row in MODEL_SPEC["poe_axis_points"]]
 
 # Adjustable gripper setup for design iteration.
 GRIPPER_CONFIG: Dict[str, float | str] = {

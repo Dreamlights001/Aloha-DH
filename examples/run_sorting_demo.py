@@ -1,4 +1,4 @@
-"""Run dual-arm MDH simulation demo for defect sorting.
+"""Run dual-arm ALOHA/VX300S kinematics simulation demo for defect sorting.
 
 Cross-platform usage (no PYTHONPATH needed):
   python examples/run_sorting_demo.py --viz matplotlib
@@ -24,9 +24,13 @@ from dual_arm_sim import (  # noqa: E402
     CONVEYOR_CONFIG,
     DEFAULT_ARM_MODEL,
     GRIPPER_CONFIG,
+    KINEMATICS_DEFAULT,
     JOINT_LIMITS_EXAMPLE,
     MDH_PARAMS_EXAMPLE,
     MODEL_SPEC,
+    OFFICIAL_POE_M,
+    OFFICIAL_POE_AXIS_POINTS,
+    OFFICIAL_POE_SLIST,
     OFFICIAL_SOURCES,
     DualArmSystem,
     SortingScenario,
@@ -37,12 +41,18 @@ from dual_arm_sim import (  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Dual-arm sorting robot MDH simulation")
+    parser = argparse.ArgumentParser(description="Dual-arm sorting robot kinematics simulation")
     parser.add_argument(
         "--viz",
         choices=("matplotlib", "pybullet", "both"),
         default="both",
         help="Visualization mode. 'both' runs PyBullet then Matplotlib export.",
+    )
+    parser.add_argument(
+        "--kinematics",
+        choices=("poe", "mdh"),
+        default=KINEMATICS_DEFAULT,
+        help="Kinematics backend. 'poe' uses official screw-axis model; 'mdh' keeps legacy mode.",
     )
     parser.add_argument(
         "--save",
@@ -124,6 +134,12 @@ def _print_runtime_info() -> None:
         f"gui_available={runtime.has_gui}",
     )
 
+def _print_joint_axis_report(dual: DualArmSystem) -> None:
+    print("Joint axis mode report:")
+    report = dual.joint_axis_mode_report()
+    for arm_name in ("left", "right"):
+        print(f"  {arm_name}:", ", ".join(report[arm_name]))
+
 
 def _print_waypoint_report(report: dict, ik_max_error: float) -> None:
     for arm_name in ("left", "right"):
@@ -150,6 +166,11 @@ def main() -> None:
         joint_limits=JOINT_LIMITS_EXAMPLE,
         arm_offset=ARM_OFFSET,
         gripper_config=GRIPPER_CONFIG,
+        kinematics_mode=args.kinematics,
+        poe_home_m=OFFICIAL_POE_M,
+        poe_slist=OFFICIAL_POE_SLIST,
+        poe_axis_points=OFFICIAL_POE_AXIS_POINTS,
+        joint_names=MODEL_SPEC["joint_order"],
     )
 
     scene = SortingScenario(
@@ -169,6 +190,8 @@ def main() -> None:
 
     _print_official_spec_summary()
     _print_runtime_info()
+    print("Kinematics backend:", args.kinematics)
+    _print_joint_axis_report(dual)
     print("Matplotlib cache dir:", mpl_dir)
     print("Left EE @ home:", [round(left_ee[i][3], 4) for i in range(3)])
     print("Right EE @ home:", [round(right_ee[i][3], 4) for i in range(3)])
@@ -185,8 +208,9 @@ def main() -> None:
         )
 
     if args.viz in ("pybullet", "both"):
-        interactive_tty = sys.stdin.isatty() and sys.stdout.isatty()
-        prefer_gui = (not args.pybullet_direct) and runtime.has_gui and (interactive_tty or args.force_gui)
+        prefer_gui = (not args.pybullet_direct) and runtime.has_gui
+        if args.force_gui:
+            prefer_gui = True
         mode = scene.visualize_pybullet(
             left_traj=left_traj,
             right_traj=right_traj,
@@ -195,11 +219,13 @@ def main() -> None:
             loop=not args.no_loop,
             prefer_gui=prefer_gui,
             allow_headless_fallback=not args.no_headless_fallback,
+            enable_drag_target=True,
         )
         if mode == "DIRECT":
             print("PyBullet mode: DIRECT (headless). GUI unavailable or disabled.")
         else:
             print("PyBullet mode: GUI")
+            print("Interactive drag: left mouse drag target; TAB switch arm; R reset; Q/Esc quit.")
 
     if args.viz in ("matplotlib", "both"):
         scene.animate_sorting(

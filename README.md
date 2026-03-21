@@ -2,7 +2,7 @@
 
 该项目用于机械设计前期运动学验证，默认采用 **ALOHA ViperX-300 6DOF 官方参数**，并支持：
 - Matplotlib 动画导出
-- PyBullet 实时交互
+- PyBullet 实时交互拖拽（末端目标 IK）
 - Windows / macOS / WSL / Ubuntu 运行兼容
 
 ## 1. 官方参数来源
@@ -42,6 +42,7 @@ python .\examples\run_sorting_demo.py --viz both --save demo.gif
 python examples/run_sorting_demo.py --viz matplotlib
 python examples/run_sorting_demo.py --viz pybullet
 python examples/run_sorting_demo.py --viz both --save demo.gif
+python examples/run_sorting_demo.py --viz pybullet --kinematics poe
 ```
 
 输出默认落到仓库 `./output/`。例如 `--save demo.gif` -> `./output/demo.gif`。
@@ -51,16 +52,27 @@ python examples/run_sorting_demo.py --viz both --save demo.gif
 - `--viz matplotlib`：导出动画（默认 `./output/sorting_demo.gif`）
 - `--viz pybullet`：实时交互
 - `--viz both`：先 PyBullet，再导出 Matplotlib 动画
+- `--kinematics poe|mdh`：默认 `poe`（官方 ALOHA/VX300S 螺旋轴模型）
 
 PyBullet 交互按键：
 - `Space` 暂停/继续
 - `N` 单步（暂停时）
 - `R` 重置帧
+- `Tab` 切换当前拖拽控制臂（left/right）
 - `Q` / `Esc` 退出
+- 鼠标左键拖拽：移动当前机械臂末端目标点并实时求解 IK
 
 无 GUI 环境（如部分 Ubuntu Server/WSL 无图形）会自动回退 PyBullet `DIRECT` 模式并单次回放，不会卡住。
 
-## 5. WSL / Linux 图形注意事项
+## 5. 场景元素定义
+
+- 传送带：绿色矩形带面
+- 正常件：绿色立方体（静止）
+- 瑕疵件：红色正四面体（静止）
+- 双机械臂：橙色加粗连杆 + 灰色关节点
+- 关节轴模式（ALOHA 6DOF）：`z/y/y/x/y/x`（waist/shoulder/elbow/forearm_roll/wrist_angle/wrist_rotate）
+
+## 6. WSL / Linux 图形注意事项
 
 若出现 `cannot connect to X server`：
 - Windows 11 + WSLg：确保在支持 GUI 的 WSL 会话中运行
@@ -68,7 +80,7 @@ PyBullet 交互按键：
 - 纯无头环境：使用 `--viz matplotlib` 或 `--viz pybullet --pybullet-direct`
 - 若你在可视化终端中明确需要 GUI，可加 `--force-gui`
 
-## 6. 验证
+## 7. 验证
 
 ```bash
 # macOS / Ubuntu / WSL
@@ -85,7 +97,7 @@ python -m unittest discover -s tests -v
 python .\examples\run_sorting_demo.py --viz matplotlib --products 8 --save demo.gif
 ```
 
-## 7. 关键文件
+## 8. 关键文件
 
 - `src/dual_arm_sim/config.py`：官方模型参数与单位转换
 - `src/dual_arm_sim/platform_utils.py`：平台/GUI 探测与 Matplotlib 运行时适配

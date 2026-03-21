@@ -1,4 +1,4 @@
-"""Dual-arm MDH simulation package for sorting robot design."""
+"""Dual-arm kinematics simulation package for sorting robot design."""
 
 from .config import (
     ARM_OFFSET,
@@ -6,6 +6,10 @@ from .config import (
     CAMERA_CONFIG,
     CONVEYOR_CONFIG,
     DEFAULT_ARM_MODEL,
+    KINEMATICS_DEFAULT,
+    OFFICIAL_POE_AXIS_POINTS,
+    OFFICIAL_POE_M,
+    OFFICIAL_POE_SLIST,
     OFFICIAL_SOURCES,
     GRIPPER_CONFIG,
     JOINT_LIMITS_EXAMPLE,
@@ -31,6 +35,10 @@ __all__ = [
     "CAMERA_CONFIG",
     "CONVEYOR_CONFIG",
     "DEFAULT_ARM_MODEL",
+    "KINEMATICS_DEFAULT",
+    "OFFICIAL_POE_AXIS_POINTS",
+    "OFFICIAL_POE_M",
+    "OFFICIAL_POE_SLIST",
     "OFFICIAL_SOURCES",
     "GRIPPER_CONFIG",
     "JOINT_LIMITS_EXAMPLE",
