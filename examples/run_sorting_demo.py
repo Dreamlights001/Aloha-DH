@@ -1,18 +1,24 @@
 """Run dual-arm MDH simulation demo for defect sorting.
 
-Usage examples:
-  PYTHONPATH=src python3 examples/run_sorting_demo.py
-  PYTHONPATH=src python3 examples/run_sorting_demo.py --viz pybullet
-  PYTHONPATH=src python3 examples/run_sorting_demo.py --viz matplotlib --save demo.gif
+Cross-platform usage (no PYTHONPATH needed):
+  python examples/run_sorting_demo.py --viz matplotlib
+  python examples/run_sorting_demo.py --viz pybullet
+  python examples/run_sorting_demo.py --viz both --save demo.gif
 """
 
 from __future__ import annotations
 
 import argparse
-import os
+import sys
 from pathlib import Path
 
-from dual_arm_sim import (
+# Allow running this script directly on Windows/macOS/Linux/WSL without PYTHONPATH.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = PROJECT_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from dual_arm_sim import (  # noqa: E402
     ARM_OFFSET,
     CAMERA_CONFIG,
     CONVEYOR_CONFIG,
@@ -24,7 +30,8 @@ from dual_arm_sim import (
     OFFICIAL_SOURCES,
     DualArmSystem,
     SortingScenario,
-    repo_root_from_file,
+    configure_matplotlib_runtime,
+    get_runtime_info,
     resolve_animation_output_path,
 )
 
@@ -35,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--viz",
         choices=("matplotlib", "pybullet", "both"),
         default="both",
-        help="Visualization mode. 'both' runs PyBullet interactive first, then Matplotlib export.",
+        help="Visualization mode. 'both' runs PyBullet then Matplotlib export.",
     )
     parser.add_argument(
         "--save",
@@ -75,6 +82,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable realtime sleeping in PyBullet (faster stepping)",
     )
+    parser.add_argument(
+        "--pybullet-direct",
+        action="store_true",
+        help="Force PyBullet DIRECT (headless) mode instead of GUI",
+    )
+    parser.add_argument(
+        "--force-gui",
+        action="store_true",
+        help="Force PyBullet GUI mode (override non-interactive safety checks)",
+    )
+    parser.add_argument(
+        "--no-headless-fallback",
+        action="store_true",
+        help="Disable automatic fallback from PyBullet GUI to DIRECT mode",
+    )
     return parser
 
 
@@ -91,6 +113,16 @@ def _print_official_spec_summary() -> None:
         f"wrist={sections['wrist_tilt_to_rotate']}, rail={sections['gripper_to_rail']}, tip={sections['finger_tip']}"
     )
     print("Joint limits (deg):", joints)
+
+
+def _print_runtime_info() -> None:
+    runtime = get_runtime_info()
+    print(
+        "Runtime:",
+        f"os={runtime.os_name}",
+        f"wsl={runtime.is_wsl}",
+        f"gui_available={runtime.has_gui}",
+    )
 
 
 def _print_waypoint_report(report: dict, ik_max_error: float) -> None:
@@ -110,10 +142,8 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    # Better matplotlib behavior in WSL environments.
-    os.environ.setdefault("MPLCONFIGDIR", "/tmp/mpl")
-
-    repo_root = repo_root_from_file(__file__)
+    mpl_dir = configure_matplotlib_runtime()
+    runtime = get_runtime_info()
 
     dual = DualArmSystem(
         mdh_params=MDH_PARAMS_EXAMPLE,
@@ -138,6 +168,8 @@ def main() -> None:
     right_ee = state["right_end_transform"]
 
     _print_official_spec_summary()
+    _print_runtime_info()
+    print("Matplotlib cache dir:", mpl_dir)
     print("Left EE @ home:", [round(left_ee[i][3], 4) for i in range(3)])
     print("Right EE @ home:", [round(right_ee[i][3], 4) for i in range(3)])
     print("Planned trajectory frames:", len(left_traj))
@@ -147,19 +179,27 @@ def main() -> None:
     if args.viz in ("matplotlib", "both"):
         save_path = resolve_animation_output_path(
             save_arg=args.save,
-            repo_root=repo_root,
+            repo_root=PROJECT_ROOT,
             default_filename="sorting_demo.gif",
             output_dir_name="output",
         )
 
     if args.viz in ("pybullet", "both"):
-        scene.visualize_pybullet(
+        interactive_tty = sys.stdin.isatty() and sys.stdout.isatty()
+        prefer_gui = (not args.pybullet_direct) and runtime.has_gui and (interactive_tty or args.force_gui)
+        mode = scene.visualize_pybullet(
             left_traj=left_traj,
             right_traj=right_traj,
             fps=args.fps,
             realtime=not args.no_realtime,
             loop=not args.no_loop,
+            prefer_gui=prefer_gui,
+            allow_headless_fallback=not args.no_headless_fallback,
         )
+        if mode == "DIRECT":
+            print("PyBullet mode: DIRECT (headless). GUI unavailable or disabled.")
+        else:
+            print("PyBullet mode: GUI")
 
     if args.viz in ("matplotlib", "both"):
         scene.animate_sorting(

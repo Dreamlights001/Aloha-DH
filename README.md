@@ -1,32 +1,22 @@
 # Dual-Arm Sorting Robot MDH Simulation (Python)
 
-用于毕业设计前期机械方案验证的双臂最简运动学仿真，已切换为 **ALOHA ViperX-300 6DOF** 官方参数（长度与关节范围）。
+该项目用于机械设计前期运动学验证，默认采用 **ALOHA ViperX-300 6DOF 官方参数**，并支持：
+- Matplotlib 动画导出
+- PyBullet 实时交互
+- Windows / macOS / WSL / Ubuntu 运行兼容
 
 ## 1. 官方参数来源
 
-- ALOHA ViperX-300 6DOF 规格：
+- ALOHA ViperX-300 6DOF：
   https://docs.trossenrobotics.com/interbotix_xsarms_docs/specifications/avx300s.html
 - X-Series 连杆尺寸（A/B/C/D/E）：
   https://docs.trossenrobotics.com/interbotix_xsarms_docs/specifications.html
-- 参考 6DOF 规格页：
+- 参考 VX300S 6DOF：
   https://docs.trossenrobotics.com/interbotix_xsarms_docs/specifications/vx300s.html
 
 默认模型：`aloha_vx300s_6dof`
 
-- 关节范围（deg）：
-  `[-180,180], [-108,114], [-123,92], [-180,180], [-100,123], [-180,180]`
-- 关键段长（mm）：
-  `upper_arm=306, forearm=300, wrist=70, gripper_to_rail=69, finger_tip=68`
-
-## 2. 目录
-
-- `src/dual_arm_sim/config.py`：官方模型参数、单位转换、MDH 构建
-- `src/dual_arm_sim/robot.py`：FK / IK / 双臂轨迹规划
-- `src/dual_arm_sim/scenario.py`：Matplotlib 动画 + PyBullet 实时交互
-- `examples/run_sorting_demo.py`：统一入口（`--viz` / 输出路径 / 报告）
-- `tests/test_dual_arm_sim.py`：单测
-
-## 3. 环境
+## 2. 环境安装
 
 ```bash
 conda env create -f environment.yml
@@ -34,48 +24,71 @@ conda activate DH
 # 或 source activate DH
 ```
 
-## 4. 运行与输出（WSL/Win11）
+## 3. 跨平台运行命令
 
-默认动画输出目录为仓库内 `./output`。
+脚本已内置 `src` 路径处理，**不需要再手动设置 `PYTHONPATH`**。
 
-```bash
-# 导出动画（默认保存到 ./output/sorting_demo.gif）
-PYTHONPATH=src python examples/run_sorting_demo.py --viz matplotlib
+### Windows (PowerShell)
 
-# 实时交互（PyBullet）
-PYTHONPATH=src python examples/run_sorting_demo.py --viz pybullet
-
-# 先交互再导出
-PYTHONPATH=src python examples/run_sorting_demo.py --viz both --save demo.gif
+```powershell
+python .\examples\run_sorting_demo.py --viz matplotlib
+python .\examples\run_sorting_demo.py --viz pybullet
+python .\examples\run_sorting_demo.py --viz both --save demo.gif
 ```
 
-说明：`--save demo.gif` 会自动解析为 `./output/demo.gif`。
+### macOS / Ubuntu / WSL
 
-## 5. PyBullet 交互控制
+```bash
+python examples/run_sorting_demo.py --viz matplotlib
+python examples/run_sorting_demo.py --viz pybullet
+python examples/run_sorting_demo.py --viz both --save demo.gif
+```
 
-- `Space`：暂停/继续
-- `N`：单步（暂停时）
-- `R`：重置帧
-- `Q` 或 `Esc`：退出
+输出默认落到仓库 `./output/`。例如 `--save demo.gif` -> `./output/demo.gif`。
 
-WSL 下若出现 `cannot connect to X server`：
-- Windows 11 + WSLg：确保通过支持 GUI 的终端启动 WSL
-- 非 WSLg：安装并启动 X Server（如 VcXsrv），并正确配置 `DISPLAY`
+## 4. 可视化模式说明
+
+- `--viz matplotlib`：导出动画（默认 `./output/sorting_demo.gif`）
+- `--viz pybullet`：实时交互
+- `--viz both`：先 PyBullet，再导出 Matplotlib 动画
+
+PyBullet 交互按键：
+- `Space` 暂停/继续
+- `N` 单步（暂停时）
+- `R` 重置帧
+- `Q` / `Esc` 退出
+
+无 GUI 环境（如部分 Ubuntu Server/WSL 无图形）会自动回退 PyBullet `DIRECT` 模式并单次回放，不会卡住。
+
+## 5. WSL / Linux 图形注意事项
+
+若出现 `cannot connect to X server`：
+- Windows 11 + WSLg：确保在支持 GUI 的 WSL 会话中运行
+- 非 WSLg：安装并启动 X Server（如 VcXsrv），并正确设置 `DISPLAY`
+- 纯无头环境：使用 `--viz matplotlib` 或 `--viz pybullet --pybullet-direct`
+- 若你在可视化终端中明确需要 GUI，可加 `--force-gui`
 
 ## 6. 验证
 
 ```bash
+# macOS / Ubuntu / WSL
 make test
 make verify
 ```
 
-`make verify` 会执行单测，并导出 `./output/demo.gif`。
+`make verify` 会执行单元测试并导出动画到 `./output/demo.gif`。
 
-## 7. 参数调优建议
+Windows 无 `make` 时可直接运行：
 
-主要修改 `src/dual_arm_sim/config.py`：
-- `ARM_OFFSET`：双臂基座间距
-- `CONVEYOR_CONFIG` / `SORTING_BINS`：产线布局
-- `build_mdh_params_from_official_specs()`：如需改为你的机械草案参数映射
+```powershell
+python -m unittest discover -s tests -v
+python .\examples\run_sorting_demo.py --viz matplotlib --products 8 --save demo.gif
+```
 
-每次调参建议看终端 `waypoint error`，优先保持 `failed=0` 且最大误差低于 `0.03m`。
+## 7. 关键文件
+
+- `src/dual_arm_sim/config.py`：官方模型参数与单位转换
+- `src/dual_arm_sim/platform_utils.py`：平台/GUI 探测与 Matplotlib 运行时适配
+- `src/dual_arm_sim/scenario.py`：Matplotlib 与 PyBullet 双模式可视化
+- `examples/run_sorting_demo.py`：跨平台统一入口
+- `tests/test_dual_arm_sim.py`：测试集合

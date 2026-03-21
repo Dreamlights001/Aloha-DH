@@ -343,7 +343,9 @@ class SortingScenario:
         fps: int = 30,
         realtime: bool = True,
         loop: bool = True,
-    ) -> None:
+        prefer_gui: bool = True,
+        allow_headless_fallback: bool = True,
+    ) -> str:
         """Realtime interactive visualization mode via PyBullet GUI.
 
         Controls:
@@ -357,21 +359,30 @@ class SortingScenario:
         import pybullet as p
         import pybullet_data
 
-        client = p.connect(p.GUI)
+        connection_mode_name = "GUI" if prefer_gui else "DIRECT"
+        client = p.connect(p.GUI if prefer_gui else p.DIRECT)
+        if client < 0 and prefer_gui and allow_headless_fallback:
+            client = p.connect(p.DIRECT)
+            connection_mode_name = "DIRECT"
         if client < 0:
-            raise RuntimeError("Failed to open PyBullet GUI. Check WSL X/GUI support.")
+            raise RuntimeError(
+                "Failed to open PyBullet connection (GUI/DIRECT). "
+                "Check WSL GUI or install an X/Wayland display server."
+            )
 
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         p.setGravity(0, 0, -9.81)
         p.loadURDF("plane.urdf")
-        p.resetDebugVisualizerCamera(
-            cameraDistance=1.7,
-            cameraYaw=45,
-            cameraPitch=-25,
-            cameraTargetPosition=[0.55, 0.0, 0.25],
-        )
+        if connection_mode_name == "GUI":
+            p.resetDebugVisualizerCamera(
+                cameraDistance=1.7,
+                cameraYaw=45,
+                cameraPitch=-25,
+                cameraTargetPosition=[0.55, 0.0, 0.25],
+            )
 
         frame_count = min(len(left_traj), len(right_traj))
+        direct_loop = loop if connection_mode_name == "GUI" else False
         debug_ids: List[int] = []
 
         length = self.conveyor_config["length"]
@@ -454,6 +465,19 @@ class SortingScenario:
 
         try:
             while p.isConnected():
+                if connection_mode_name == "DIRECT":
+                    draw_frame(frame, paused=False)
+                    frame += 1
+                    if frame >= frame_count:
+                        if direct_loop:
+                            frame = 0
+                        else:
+                            break
+                    p.stepSimulation()
+                    if realtime:
+                        time.sleep(max(0.0, 1.0 / max(1, fps)))
+                    continue
+
                 keys = p.getKeyboardEvents()
                 if ord(" ") in keys and keys[ord(" ")] & p.KEY_WAS_TRIGGERED:
                     paused = not paused
@@ -484,3 +508,4 @@ class SortingScenario:
         finally:
             if p.isConnected():
                 p.disconnect()
+        return connection_mode_name

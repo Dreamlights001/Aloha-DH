@@ -17,6 +17,9 @@ from dual_arm_sim import (  # noqa: E402
     OFFICIAL_SOURCES,
     DualArmSystem,
     RobotArm6DOF,
+    configure_matplotlib_runtime,
+    detect_gui_available,
+    detect_wsl,
     resolve_animation_output_path,
 )
 
@@ -119,6 +122,22 @@ class TestOutputPathHelpers(unittest.TestCase):
         repo_root = Path(__file__).resolve().parents[1]
         path = resolve_animation_output_path(None, repo_root=repo_root, default_filename="sorting_demo.gif")
         self.assertTrue(str(path).endswith("output/sorting_demo.gif"))
+
+
+class TestPlatformUtils(unittest.TestCase):
+    def test_detect_wsl_from_env(self) -> None:
+        self.assertTrue(detect_wsl(env={"WSL_DISTRO_NAME": "Ubuntu"}))
+        self.assertFalse(detect_wsl(env={}, uname_release="6.5.0-generic"))
+
+    def test_detect_gui_available_linux_without_display(self) -> None:
+        self.assertFalse(detect_gui_available(platform_name="linux", env={}, is_wsl=False))
+
+    def test_detect_gui_available_linux_with_display(self) -> None:
+        self.assertTrue(detect_gui_available(platform_name="linux", env={"DISPLAY": ":0"}, is_wsl=False))
+
+    def test_configure_matplotlib_runtime_creates_dir(self) -> None:
+        path = configure_matplotlib_runtime(env={})
+        self.assertTrue(path.exists())
 
 
 if __name__ == "__main__":
