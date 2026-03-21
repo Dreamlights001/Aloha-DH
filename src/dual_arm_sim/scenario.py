@@ -462,6 +462,11 @@ class SortingScenario:
         frame = 0
         paused = False
         step_once = False
+        escape_key_codes = [27]  # ASCII ESC fallback for older/newer pybullet variants
+        for attr_name in ("B3G_ESCAPE", "B3G_ESC"):
+            code = getattr(p, attr_name, None)
+            if isinstance(code, int):
+                escape_key_codes.append(code)
 
         try:
             while p.isConnected():
@@ -485,9 +490,13 @@ class SortingScenario:
                     step_once = True
                 if ord("r") in keys and keys[ord("r")] & p.KEY_WAS_TRIGGERED:
                     frame = 0
+                escape_triggered = any(
+                    (code in keys and keys[code] & p.KEY_WAS_TRIGGERED)
+                    for code in escape_key_codes
+                )
                 if (
                     (ord("q") in keys and keys[ord("q")] & p.KEY_WAS_TRIGGERED)
-                    or (p.B3G_ESCAPE in keys and keys[p.B3G_ESCAPE] & p.KEY_WAS_TRIGGERED)
+                    or escape_triggered
                 ):
                     break
 
