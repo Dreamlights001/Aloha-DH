@@ -61,6 +61,42 @@ class TestRobotArm6DOF(unittest.TestCase):
         err = math.sqrt(sum((target[i] - p[i]) ** 2 for i in range(3)))
         self.assertLess(err, 2e-3)
 
+    def test_inverse_kinematics_point_position_for_joint_node(self) -> None:
+        q0 = [0.0] * 6
+        p0 = self.arm.point_position(q0, point_index=4)
+        target = [p0[0] + 0.03, p0[1] + 0.02, p0[2]]
+        ik = self.arm.inverse_kinematics_point_position(
+            target_position=target,
+            point_index=4,
+            initial_angles=q0,
+            active_dofs=[0, 1, 2, 3],
+            max_iters=120,
+            tol=1e-3,
+        )
+        p1 = self.arm.point_position(ik.joint_angles, point_index=4)
+        err = math.sqrt(sum((target[i] - p1[i]) ** 2 for i in range(3)))
+        self.assertLess(err, 5e-3)
+
+    def test_kinematic_snapshot_contains_robotics_notation(self) -> None:
+        snapshot = self.arm.kinematic_snapshot([0.1, -0.2, 0.15, 0.05, -0.1, 0.2])
+        self.assertEqual(len(snapshot["relative_transforms"]), 6)
+        self.assertEqual(len(snapshot["base_transforms"]), 6)
+        self.assertEqual(len(snapshot["base_points"]), 6)
+        self.assertEqual(snapshot["relative_transforms"][0]["notation"], "^0T_1")
+        self.assertEqual(snapshot["base_transforms"][-1]["notation"], "^0T_6")
+        self.assertEqual(snapshot["base_points"][2]["notation"], "^0p_3")
+
+    def test_transform_point_between_frames_matches_identity_case(self) -> None:
+        point = [0.12, -0.03, 0.08]
+        transformed = self.arm.transform_point_between_frames(
+            point=point,
+            joint_angles=[0.0] * 6,
+            from_frame=0,
+            to_frame=0,
+        )
+        for i in range(3):
+            self.assertAlmostEqual(transformed[i], point[i], places=8)
+
 
 class TestDualArmSystem(unittest.TestCase):
     def setUp(self) -> None:

@@ -253,6 +253,24 @@ class RobotArm6DOF:
             for i, q in enumerate(joint_angles)
         ]
 
+    @staticmethod
+    def _invert_homogeneous(t: Sequence[Sequence[float]]) -> List[List[float]]:
+        """Invert a rigid homogeneous transform [R p; 0 1]."""
+        r_t = [
+            [t[0][0], t[1][0], t[2][0]],
+            [t[0][1], t[1][1], t[2][1]],
+            [t[0][2], t[1][2], t[2][2]],
+        ]
+        p = [t[0][3], t[1][3], t[2][3]]
+        inv = identity(4)
+        for i in range(3):
+            for j in range(3):
+                inv[i][j] = r_t[i][j]
+        inv[0][3] = -(r_t[0][0] * p[0] + r_t[0][1] * p[1] + r_t[0][2] * p[2])
+        inv[1][3] = -(r_t[1][0] * p[0] + r_t[1][1] * p[1] + r_t[1][2] * p[2])
+        inv[2][3] = -(r_t[2][0] * p[0] + r_t[2][1] * p[1] + r_t[2][2] * p[2])
+        return inv
+
     def _forward_kinematics_mdh(
         self,
         joint_angles: Sequence[float],
@@ -319,6 +337,13 @@ class RobotArm6DOF:
         t, _, _ = self.forward_kinematics(joint_angles)
         return [t[0][3], t[1][3], t[2][3]]
 
+    def point_position(self, joint_angles: Sequence[float], point_index: int) -> List[float]:
+        """Get world position of chain point index in [0..6]."""
+        if point_index < 0 or point_index > 6:
+            raise ValueError("point_index must be in [0..6]")
+        _, positions, _ = self.forward_kinematics(joint_angles)
+        return positions[point_index][:]
+
     def numeric_jacobian(self, joint_angles: Sequence[float], eps: float = 1e-5) -> List[List[float]]:
         """3x6 positional Jacobian via finite differences."""
         q = list(joint_angles)
@@ -329,6 +354,29 @@ class RobotArm6DOF:
             q_eps = q[:]
             q_eps[i] += eps
             p1 = self.end_effector_position(q_eps)
+            for row in range(3):
+                j[row][i] = (p1[row] - p0[row]) / eps
+
+        return j
+
+    def numeric_jacobian_for_point(
+        self,
+        joint_angles: Sequence[float],
+        point_index: int,
+        eps: float = 1e-5,
+    ) -> List[List[float]]:
+        """3x6 positional Jacobian for any kinematic point index [0..6]."""
+        if point_index < 0 or point_index > 6:
+            raise ValueError("point_index must be in [0..6]")
+
+        q = list(joint_angles)
+        p0 = self.point_position(q, point_index)
+        j = zeros(3, 6)
+
+        for i in range(6):
+            q_eps = q[:]
+            q_eps[i] += eps
+            p1 = self.point_position(q_eps, point_index)
             for row in range(3):
                 j[row][i] = (p1[row] - p0[row]) / eps
 
@@ -428,6 +476,139 @@ class RobotArm6DOF:
         if best is None:
             raise RuntimeError("Unexpected IK failure: no attempts were executed")
         return best
+
+    def inverse_kinematics_point_position(
+        self,
+        target_position: Sequence[float],
+        point_index: int,
+        initial_angles: Sequence[float] | None = None,
+        active_dofs: Sequence[int] | None = None,
+        max_iters: int = 200,
+        tol: float = 1e-4,
+        damping: float = 1e-3,
+        step_size: float = 0.8,
+    ) -> IKResult:
+        """Damped-least-squares IK for an arbitrary kinematic point index [0..6]."""
+        if len(target_position) != 3:
+            raise ValueError("target_position must be 3D")
+        if point_index < 0 or point_index > 6:
+            raise ValueError("point_index must be in [0..6]")
+
+        if initial_angles is None:
+            q = self.home_joint_angles[:]
+        else:
+            q = self.clamp_joint_angles(initial_angles)
+
+        if active_dofs is None:
+            dof_limit = min(6, max(1, point_index))
+            active = list(range(dof_limit))
+        else:
+            active = sorted(set(int(i) for i in active_dofs if 0 <= int(i) < 6))
+            if not active:
+                raise ValueError("active_dofs must contain at least one valid dof in [0..5]")
+
+        final_error = float("inf")
+        for it in range(max_iters):
+            p = self.point_position(q, point_index)
+            err = vector_sub(target_position, p)
+            final_error = vector_norm(err)
+            if final_error < tol:
+                return IKResult(q, True, it + 1, final_error)
+
+            j_full = self.numeric_jacobian_for_point(q, point_index)
+            m = len(active)
+            j = zeros(3, m)
+            for r in range(3):
+                for c, idx in enumerate(active):
+                    j[r][c] = j_full[r][idx]
+            jt = transpose(j)
+
+            a = zeros(m, m)
+            rhs = mat_vec_mul(jt, err)
+            for r in range(m):
+                for c in range(m):
+                    a[r][c] = sum(jt[r][k] * j[k][c] for k in range(3))
+                a[r][r] += damping * damping
+
+            try:
+                dq = solve_linear_system(a, rhs)
+            except ValueError:
+                return IKResult(q, False, it + 1, final_error)
+
+            for c, idx in enumerate(active):
+                q[idx] += step_size * dq[c]
+            q = self.clamp_joint_angles(q)
+
+        return IKResult(q, False, max_iters, final_error)
+
+    def kinematic_snapshot(self, joint_angles: Sequence[float]) -> Dict[str, object]:
+        """Return per-DOF transforms and points in robotics notation."""
+        q = self.clamp_joint_angles(joint_angles)
+        _, _, transforms = self.forward_kinematics(q)
+
+        relative_transforms: List[Dict[str, object]] = []
+        base_transforms: List[Dict[str, object]] = []
+        base_points: List[Dict[str, object]] = []
+
+        for i in range(1, 7):
+            t_prev = transforms[i - 1]
+            t_curr = transforms[i]
+            t_rel = mat_mul(self._invert_homogeneous(t_prev), t_curr)
+            p_curr = [t_curr[0][3], t_curr[1][3], t_curr[2][3]]
+
+            relative_transforms.append(
+                {
+                    "joint_index": i,
+                    "joint_name": self.joint_names[i - 1],
+                    "notation": f"^{i-1}T_{i}",
+                    "matrix": [row[:] for row in t_rel],
+                }
+            )
+            base_transforms.append(
+                {
+                    "joint_index": i,
+                    "joint_name": self.joint_names[i - 1],
+                    "notation": f"^0T_{i}",
+                    "matrix": [row[:] for row in t_curr],
+                }
+            )
+            base_points.append(
+                {
+                    "joint_index": i,
+                    "joint_name": self.joint_names[i - 1],
+                    "notation": f"^0p_{i}",
+                    "vector": p_curr,
+                }
+            )
+
+        return {
+            "q": q,
+            "relative_transforms": relative_transforms,
+            "base_transforms": base_transforms,
+            "base_points": base_points,
+        }
+
+    def transform_point_between_frames(
+        self,
+        point: Sequence[float],
+        joint_angles: Sequence[float],
+        from_frame: int,
+        to_frame: int,
+    ) -> List[float]:
+        """Transform a point from frame {from_frame} to frame {to_frame}."""
+        if len(point) != 3:
+            raise ValueError("point must be 3D")
+        if from_frame < 0 or from_frame > 6 or to_frame < 0 or to_frame > 6:
+            raise ValueError("frame index must be in [0..6]")
+
+        _, _, transforms = self.forward_kinematics(joint_angles)
+        t_from = transforms[from_frame]
+        t_to = transforms[to_frame]
+        point_h = [point[0], point[1], point[2], 1.0]
+
+        p_base = mat_vec_mul(t_from, point_h)
+        p_to = mat_vec_mul(self._invert_homogeneous(t_to), p_base)
+        return p_to[:3]
 
     @staticmethod
     def interpolate_joint_trajectory(
