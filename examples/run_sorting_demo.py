@@ -379,7 +379,10 @@ def main() -> None:
             print("PyBullet mode: DIRECT (headless). GUI unavailable or disabled.")
         else:
             print("PyBullet mode: GUI")
-            print("Interactive drag: left mouse pick and drag joint; TAB switch arm; R reset; Q/Esc quit.")
+            print(
+                "Interactive drag: LMB pick/drag any joint; RMB rotate view; "
+                "mouse wheel zoom; WASD/ZX camera tweak; R reset; Q/Esc quit."
+            )
 
     if args.viz in ("matplotlib", "both"):
         scene.animate_sorting(

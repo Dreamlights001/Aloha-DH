@@ -21,6 +21,8 @@ class SortingObject:
 
 
 class SortingScenario:
+    PRODUCT_SCALE = 0.8
+
     def __init__(
         self,
         dual_arm_system: DualArmSystem,
@@ -50,7 +52,8 @@ class SortingScenario:
             x = rng.uniform(x_min, x_max)
             y = rng.uniform(-y_span, y_span)
             defective = rng.random() < defective_ratio
-            radius = 0.028 if defective else 0.024
+            base_radius = 0.028 if defective else 0.024
+            radius = base_radius * self.PRODUCT_SCALE
             self.products.append(
                 SortingObject(position=[x, y, z], defective=defective, radius=radius)
             )
@@ -136,7 +139,7 @@ class SortingScenario:
             [v[2], v[3], v[7], v[6]],
             [v[3], v[0], v[4], v[7]],
         ]
-        ax.add_collection3d(Poly3DCollection(faces, alpha=0.7, facecolor=color, edgecolor="black", linewidths=0.6))
+        ax.add_collection3d(Poly3DCollection(faces, alpha=0.95, facecolor=color, edgecolor="black", linewidths=0.5))
 
     @staticmethod
     def _draw_tetra(ax, center: Sequence[float], scale: float, color: str) -> None:
@@ -149,7 +152,7 @@ class SortingScenario:
         v2 = [x - a, y - a, z - a]
         v3 = [x, y + a, z - a]
         faces = [[v0, v1, v2], [v0, v2, v3], [v0, v3, v1], [v1, v3, v2]]
-        ax.add_collection3d(Poly3DCollection(faces, alpha=0.75, facecolor=color, edgecolor="black", linewidths=0.7))
+        ax.add_collection3d(Poly3DCollection(faces, alpha=0.95, facecolor=color, edgecolor="black", linewidths=0.5))
 
     def _draw_arm(
         self,
@@ -166,7 +169,7 @@ class SortingScenario:
 
         arm_color = "darkorange" if "right" not in arm.name else "gold"
         joint_color = "gray"
-        ax.plot(xs, ys, zs, color=arm_color, lw=4.0)
+        ax.plot(xs, ys, zs, color=arm_color, lw=5.8)
 
         for p in positions:
             ax.scatter([p[0]], [p[1]], [p[2]], c=joint_color, s=40)
@@ -188,8 +191,8 @@ class SortingScenario:
         f2_tip = vector_add(f2_root, vector_scale(x_axis, finger_len))
 
         gripper_color = "orange" if gripper_closed else "gold"
-        ax.plot([f1_root[0], f1_tip[0]], [f1_root[1], f1_tip[1]], [f1_root[2], f1_tip[2]], c=gripper_color, lw=4)
-        ax.plot([f2_root[0], f2_tip[0]], [f2_root[1], f2_tip[1]], [f2_root[2], f2_tip[2]], c=gripper_color, lw=4)
+        ax.plot([f1_root[0], f1_tip[0]], [f1_root[1], f1_tip[1]], [f1_root[2], f1_tip[2]], c=gripper_color, lw=5.2)
+        ax.plot([f2_root[0], f2_tip[0]], [f2_root[1], f2_tip[1]], [f2_root[2], f2_tip[2]], c=gripper_color, lw=5.2)
 
     def _draw_conveyor(self, ax) -> None:
         self._require_matplotlib()
@@ -255,6 +258,10 @@ class SortingScenario:
         ax.set_ylim(-0.55, 0.55)
         ax.set_zlim(0.0, 1.1)
         ax.set_title("Dual-Arm Defect Sorting Simulation")
+        ax.set_xticks([round(-0.25 + i * 0.25, 2) for i in range(7)])
+        ax.set_yticks([round(-0.5 + i * 0.25, 2) for i in range(5)])
+        ax.set_zticks([round(i * 0.25, 2) for i in range(6)])
+        ax.grid(True, alpha=0.35)
 
         if hasattr(ax, "set_box_aspect"):
             ax.set_box_aspect((1.4, 1.1, 1.0))
@@ -410,6 +417,67 @@ class SortingScenario:
             return None
         return [ray_from[i] + t * direction[i] for i in range(3)]
 
+    @staticmethod
+    def _ray_plane_intersection_with_normal(
+        ray_from: Sequence[float],
+        ray_to: Sequence[float],
+        plane_point: Sequence[float],
+        plane_normal: Sequence[float],
+    ) -> List[float] | None:
+        direction = [ray_to[i] - ray_from[i] for i in range(3)]
+        denom = sum(direction[i] * plane_normal[i] for i in range(3))
+        if abs(denom) < 1e-9:
+            return None
+        t = sum((plane_point[i] - ray_from[i]) * plane_normal[i] for i in range(3)) / denom
+        if t < 0:
+            return None
+        return [ray_from[i] + t * direction[i] for i in range(3)]
+
+    @staticmethod
+    def _pybullet_create_solid_cube(p, center: Sequence[float], half: float, rgba: Sequence[float]) -> int:
+        vis = p.createVisualShape(
+            shapeType=p.GEOM_BOX,
+            halfExtents=[half, half, half],
+            rgbaColor=list(rgba),
+            specularColor=[0.25, 0.25, 0.25],
+        )
+        return p.createMultiBody(
+            baseMass=0.0,
+            baseCollisionShapeIndex=-1,
+            baseVisualShapeIndex=vis,
+            basePosition=list(center),
+        )
+
+    @staticmethod
+    def _pybullet_create_solid_tetra(p, center: Sequence[float], scale: float, rgba: Sequence[float]) -> int:
+        # Unit regular-tetra-like mesh centered around origin, then scaled.
+        vertices = [
+            [0.0, 0.0, 1.0],
+            [1.0, -1.0, -1.0],
+            [-1.0, -1.0, -1.0],
+            [0.0, 1.0, -1.0],
+        ]
+        indices = [
+            0, 1, 2,
+            0, 2, 3,
+            0, 3, 1,
+            1, 3, 2,
+        ]
+        vis = p.createVisualShape(
+            shapeType=p.GEOM_MESH,
+            vertices=vertices,
+            indices=indices,
+            meshScale=[scale, scale, scale],
+            rgbaColor=list(rgba),
+            specularColor=[0.25, 0.25, 0.25],
+        )
+        return p.createMultiBody(
+            baseMass=0.0,
+            baseCollisionShapeIndex=-1,
+            baseVisualShapeIndex=vis,
+            basePosition=list(center),
+        )
+
     def visualize_pybullet(
         self,
         left_traj: List[List[float]],
@@ -444,12 +512,16 @@ class SortingScenario:
         if not self.products:
             self.generate_products()
 
+        camera_distance = 1.7
+        camera_yaw = 45.0
+        camera_pitch = -25.0
+        camera_target = [0.55, 0.0, 0.25]
         if connection_mode_name == "GUI":
             p.resetDebugVisualizerCamera(
-                cameraDistance=1.7,
-                cameraYaw=45,
-                cameraPitch=-25,
-                cameraTargetPosition=[0.55, 0.0, 0.25],
+                cameraDistance=camera_distance,
+                cameraYaw=camera_yaw,
+                cameraPitch=camera_pitch,
+                cameraTargetPosition=camera_target,
             )
 
         frame_count = min(len(left_traj), len(right_traj))
@@ -462,16 +534,21 @@ class SortingScenario:
         selected_joint_idx: int | None = None
         selected_joint_target: List[float] | None = None
         drag_active = False
-        drag_plane_z = self.conveyor_config["height"] + 0.2
+        drag_plane_point = [0.0, 0.0, self.conveyor_config["height"] + 0.2]
+        drag_plane_normal = [0.0, 0.0, 1.0]
         last_drag_error = 0.0
         last_drag_success = False
 
         mouse_button_event = getattr(p, "MOUSE_BUTTON_EVENT", 2)
         mouse_move_event = getattr(p, "MOUSE_MOVE_EVENT", 1)
         mouse_left = getattr(p, "MOUSE_BUTTON_LEFT", 0)
+        mouse_right = getattr(p, "MOUSE_BUTTON_RIGHT", 2)
         key_is_down = getattr(p, "KEY_IS_DOWN", 1)
+        camera_drag_active = False
+        camera_last_xy: Tuple[int, int] | None = None
 
-        static_ids: List[int] = []
+        static_debug_ids: List[int] = []
+        static_body_ids: List[int] = []
         dynamic_line_ids: Dict[str, int] = {}
         dynamic_text_ids: Dict[str, int] = {}
 
@@ -521,30 +598,68 @@ class SortingScenario:
                 new_id = p.addUserDebugText(text, position, textColorRGB=color, textSize=size, lifeTime=0)
             dynamic_text_ids[key] = new_id
 
+        def apply_camera() -> None:
+            if connection_mode_name != "GUI":
+                return
+            p.resetDebugVisualizerCamera(
+                cameraDistance=max(0.4, camera_distance),
+                cameraYaw=camera_yaw,
+                cameraPitch=max(-89.0, min(89.0, camera_pitch)),
+                cameraTargetPosition=camera_target,
+            )
+
         def draw_scene_objects_once() -> None:
             length = self.conveyor_config["length"]
             width = self.conveyor_config["width"]
             height = self.conveyor_config["height"]
-            static_ids.extend(
+
+            conveyor_vis = p.createVisualShape(
+                shapeType=p.GEOM_BOX,
+                halfExtents=[0.5 * length, 0.5 * width, 0.5 * height],
+                rgbaColor=[0.2, 0.8, 0.2, 0.85],
+                specularColor=[0.2, 0.2, 0.2],
+            )
+            static_body_ids.append(
+                p.createMultiBody(
+                    baseMass=0.0,
+                    baseCollisionShapeIndex=-1,
+                    baseVisualShapeIndex=conveyor_vis,
+                    basePosition=[length * 0.5, 0.0, height * 0.5],
+                )
+            )
+            static_debug_ids.extend(
                 self._pybullet_add_box_wireframe(
                     p,
                     center=[length * 0.5, 0.0, height * 0.5],
                     half_extents=[0.5 * length, 0.5 * width, 0.5 * height],
-                    color=[0.2, 0.8, 0.2],
-                    width=1.2,
+                    color=[0.1, 0.45, 0.1],
+                    width=1.0,
                 )
             )
             for obj in self.products:
                 if obj.defective:
-                    static_ids.extend(
-                        self._pybullet_add_tetra_wireframe(
-                            p, obj.position, obj.radius, [1.0, 0.0, 0.0], width=2.2
+                    try:
+                        static_body_ids.append(
+                            self._pybullet_create_solid_tetra(
+                                p,
+                                center=obj.position,
+                                scale=obj.radius,
+                                rgba=[1.0, 0.0, 0.0, 0.95],
+                            )
                         )
-                    )
+                    except Exception:
+                        static_debug_ids.extend(
+                            self._pybullet_add_tetra_wireframe(
+                                p, obj.position, obj.radius, [1.0, 0.0, 0.0], width=2.8
+                            )
+                        )
                 else:
-                    static_ids.extend(
-                        self._pybullet_add_cube_wireframe(
-                            p, obj.position, obj.radius, [0.0, 0.9, 0.0], width=2.2
+                    static_body_ids.append(
+                        self._pybullet_create_solid_cube(
+                            p,
+                            center=obj.position,
+                            half=obj.radius,
+                            rgba=[0.0, 0.85, 0.0, 0.95],
                         )
                     )
 
@@ -563,16 +678,16 @@ class SortingScenario:
                     positions[i],
                     positions[i + 1],
                     arm_color,
-                    4.2,
+                    6.0,
                 )
             for i, pos in enumerate(positions):
-                marker_half = 0.006
+                marker_half = 0.008
                 marker_color = joint_color
-                marker_width = 5.0
+                marker_width = 7.0
                 if arm_key == selected_arm and selected_joint_idx == i:
-                    marker_half = 0.014
+                    marker_half = 0.016
                     marker_color = [0.1, 0.9, 1.0]
-                    marker_width = 6.0
+                    marker_width = 8.0
                 upsert_line(
                     f"{arm_key}_joint_{i}",
                     [pos[0], pos[1], pos[2] - marker_half],
@@ -592,8 +707,8 @@ class SortingScenario:
             f1_tip = vector_add(f1_root, vector_scale(x_axis, 0.05))
             f2_tip = vector_add(f2_root, vector_scale(x_axis, 0.05))
             grip_col = arm_color if gripper_closed else [min(1.0, arm_color[0] + 0.1), min(1.0, arm_color[1] + 0.1), 0.2]
-            upsert_line(f"{arm_key}_grip_0", f1_root, f1_tip, grip_col, 4.0)
-            upsert_line(f"{arm_key}_grip_1", f2_root, f2_tip, grip_col, 4.0)
+            upsert_line(f"{arm_key}_grip_0", f1_root, f1_tip, grip_col, 5.5)
+            upsert_line(f"{arm_key}_grip_1", f2_root, f2_tip, grip_col, 5.5)
             return positions
 
         def draw_status(text: str) -> None:
@@ -603,9 +718,41 @@ class SortingScenario:
             if center is None:
                 center = [0.0, 0.0, -10.0]
             d = 0.03
-            upsert_line("target_x", [center[0] - d, center[1], center[2]], [center[0] + d, center[1], center[2]], color, 3.0)
-            upsert_line("target_y", [center[0], center[1] - d, center[2]], [center[0], center[1] + d, center[2]], color, 3.0)
-            upsert_line("target_z", [center[0], center[1], center[2] - d], [center[0], center[1], center[2] + d], color, 3.0)
+            upsert_line("target_x", [center[0] - d, center[1], center[2]], [center[0] + d, center[1], center[2]], color, 4.0)
+            upsert_line("target_y", [center[0], center[1] - d, center[2]], [center[0], center[1] + d, center[2]], color, 4.0)
+            upsert_line("target_z", [center[0], center[1], center[2] - d], [center[0], center[1], center[2] + d], color, 4.0)
+
+        def draw_joint_panel(left_positions: Sequence[Sequence[float]], right_positions: Sequence[Sequence[float]]) -> None:
+            yaw_rad = math.radians(camera_yaw)
+            right_axis = [-math.sin(yaw_rad), math.cos(yaw_rad), 0.0]
+            anchor = [
+                camera_target[0] + right_axis[0] * 0.95,
+                camera_target[1] + right_axis[1] * 0.95,
+                camera_target[2] + 0.55,
+            ]
+            dz = 0.065
+            upsert_text("hud_title", "Joint Positions ^0p_i (m)", anchor, [0.95, 0.95, 0.6], 1.1)
+            left_base = left_positions[0]
+            right_base = right_positions[0]
+            for i in range(1, 7):
+                lp = left_positions[i]
+                rp = right_positions[i]
+                lp_rel = [lp[0] - left_base[0], lp[1] - left_base[1], lp[2] - left_base[2]]
+                rp_rel = [rp[0] - right_base[0], rp[1] - right_base[1], rp[2] - right_base[2]]
+                upsert_text(
+                    f"hud_left_{i}",
+                    f"L-J{i}: ({lp_rel[0]:+.3f}, {lp_rel[1]:+.3f}, {lp_rel[2]:+.3f})",
+                    [anchor[0], anchor[1], anchor[2] - dz * i],
+                    [1.0, 0.65, 0.1],
+                    1.0,
+                )
+                upsert_text(
+                    f"hud_right_{i}",
+                    f"R-J{i}: ({rp_rel[0]:+.3f}, {rp_rel[1]:+.3f}, {rp_rel[2]:+.3f})",
+                    [anchor[0], anchor[1], anchor[2] - dz * (i + 6)],
+                    [1.0, 1.0, 0.25],
+                    1.0,
+                )
 
         def pick_joint_index(
             arm: RobotArm6DOF,
@@ -613,12 +760,12 @@ class SortingScenario:
             ray_from: Sequence[float],
             ray_to: Sequence[float],
             threshold: float = 0.06,
-        ) -> Tuple[int | None, List[float] | None]:
+        ) -> Tuple[int | None, List[float] | None, float]:
             _, positions, _ = arm.forward_kinematics(q)
             direction = [ray_to[i] - ray_from[i] for i in range(3)]
             ray_len = math.sqrt(sum(v * v for v in direction))
             if ray_len < 1e-9:
-                return None, None
+                return None, None, float("inf")
             direction = [v / ray_len for v in direction]
 
             best_idx: int | None = None
@@ -639,8 +786,8 @@ class SortingScenario:
                     best_pos = pos[:]
 
             if best_idx is None or best_dist > threshold:
-                return None, None
-            return best_idx, best_pos
+                return None, None, float("inf")
+            return best_idx, best_pos, best_dist
 
         draw_scene_objects_once()
 
@@ -665,12 +812,33 @@ class SortingScenario:
                         selected_joint_idx = None
                         selected_joint_target = None
                         drag_active = False
-                    tab_codes = [9, ord("\t")]
-                    tab_const = getattr(p, "B3G_TAB", None)
-                    if isinstance(tab_const, int):
-                        tab_codes.append(tab_const)
-                    if any(code in keys and keys[code] & p.KEY_WAS_TRIGGERED for code in tab_codes):
-                        selected_arm = "right" if selected_arm == "left" else "left"
+
+                    yaw_delta = 0.0
+                    pitch_delta = 0.0
+                    dist_delta = 0.0
+                    for code in (ord("a"), ord("A"), getattr(p, "B3G_LEFT_ARROW", -1)):
+                        if code in keys and keys[code] & key_is_down:
+                            yaw_delta -= 1.0
+                    for code in (ord("d"), ord("D"), getattr(p, "B3G_RIGHT_ARROW", -1)):
+                        if code in keys and keys[code] & key_is_down:
+                            yaw_delta += 1.0
+                    for code in (ord("w"), ord("W"), getattr(p, "B3G_UP_ARROW", -1)):
+                        if code in keys and keys[code] & key_is_down:
+                            pitch_delta += 0.8
+                    for code in (ord("s"), ord("S"), getattr(p, "B3G_DOWN_ARROW", -1)):
+                        if code in keys and keys[code] & key_is_down:
+                            pitch_delta -= 0.8
+                    for code in (ord("z"), ord("Z")):
+                        if code in keys and keys[code] & key_is_down:
+                            dist_delta += 0.02
+                    for code in (ord("x"), ord("X")):
+                        if code in keys and keys[code] & key_is_down:
+                            dist_delta -= 0.02
+                    if abs(yaw_delta) > 1e-9 or abs(pitch_delta) > 1e-9 or abs(dist_delta) > 1e-9:
+                        camera_yaw += yaw_delta
+                        camera_pitch += pitch_delta
+                        camera_distance = max(0.4, camera_distance + dist_delta)
+                        apply_camera()
 
                     escape_codes = [27]
                     for attr_name in ("B3G_ESCAPE", "B3G_ESC"):
@@ -684,49 +852,86 @@ class SortingScenario:
                     if (ord("q") in keys and keys[ord("q")] & p.KEY_WAS_TRIGGERED) or escape_triggered:
                         break
 
-                if interactive_drag:
+                if connection_mode_name == "GUI":
                     mouse_events = p.getMouseEvents()
                     for ev in mouse_events:
                         if len(ev) < 5:
                             continue
                         event_type, mx, my, button_idx, button_state = ev[0], ev[1], ev[2], ev[3], ev[4]
+
+                        if event_type == mouse_button_event and button_idx == mouse_right:
+                            if (button_state & p.KEY_WAS_TRIGGERED) or (button_state & key_is_down):
+                                camera_drag_active = True
+                                camera_last_xy = (mx, my)
+                            if button_state & p.KEY_WAS_RELEASED:
+                                camera_drag_active = False
+                                camera_last_xy = None
+
+                        if camera_drag_active and event_type == mouse_move_event and camera_last_xy is not None:
+                            dx = mx - camera_last_xy[0]
+                            dy = my - camera_last_xy[1]
+                            camera_last_xy = (mx, my)
+                            camera_yaw += 0.18 * dx
+                            camera_pitch -= 0.18 * dy
+                            apply_camera()
+
+                        if not interactive_drag:
+                            continue
+
                         if event_type == mouse_button_event and button_idx == mouse_left:
                             if (button_state & p.KEY_WAS_TRIGGERED) or (button_state & key_is_down):
                                 try:
                                     cam_info = p.getDebugVisualizerCamera()
                                     ray_from, ray_to = self._screen_to_ray(mx, my, cam_info)
-                                    if selected_arm == "left":
-                                        joint_idx, joint_pos = pick_joint_index(
-                                            self.dual_arm_system.left_arm,
-                                            left_q_live,
-                                            ray_from,
-                                            ray_to,
-                                        )
-                                    else:
-                                        joint_idx, joint_pos = pick_joint_index(
-                                            self.dual_arm_system.right_arm,
-                                            right_q_live,
-                                            ray_from,
-                                            ray_to,
-                                        )
-                                    if joint_idx is not None and joint_pos is not None:
-                                        selected_joint_idx = joint_idx
-                                        selected_joint_target = joint_pos[:]
-                                        drag_plane_z = joint_pos[2]
+                                    lj, lp, ld = pick_joint_index(
+                                        self.dual_arm_system.left_arm,
+                                        left_q_live,
+                                        ray_from,
+                                        ray_to,
+                                    )
+                                    rj, rp, rd = pick_joint_index(
+                                        self.dual_arm_system.right_arm,
+                                        right_q_live,
+                                        ray_from,
+                                        ray_to,
+                                    )
+                                    if ld <= rd and lj is not None and lp is not None:
+                                        selected_arm = "left"
+                                        selected_joint_idx = lj
+                                        selected_joint_target = lp[:]
+                                    elif rj is not None and rp is not None:
+                                        selected_arm = "right"
+                                        selected_joint_idx = rj
+                                        selected_joint_target = rp[:]
+
+                                    if selected_joint_idx is not None and selected_joint_target is not None:
                                         drag_active = True
+                                        drag_plane_point = selected_joint_target[:]
+                                        ray_dir = [ray_to[i] - ray_from[i] for i in range(3)]
+                                        ray_norm = math.sqrt(sum(v * v for v in ray_dir))
+                                        if ray_norm > 1e-9:
+                                            drag_plane_normal = [v / ray_norm for v in ray_dir]
+                                        else:
+                                            drag_plane_normal = [0.0, 0.0, 1.0]
                                 except Exception:
                                     pass
                             if button_state & p.KEY_WAS_RELEASED:
                                 drag_active = False
+
                         if (
-                            drag_active
+                            interactive_drag
+                            and drag_active
                             and selected_joint_idx is not None
                             and event_type in (mouse_move_event, mouse_button_event)
                         ):
                             try:
                                 cam_info = p.getDebugVisualizerCamera()
                                 ray_from, ray_to = self._screen_to_ray(mx, my, cam_info)
-                                hit = self._ray_plane_intersection(ray_from, ray_to, drag_plane_z)
+                                hit = self._ray_plane_intersection_with_normal(
+                                    ray_from, ray_to, drag_plane_point, drag_plane_normal
+                                )
+                                if hit is None:
+                                    hit = self._ray_plane_intersection(ray_from, ray_to, drag_plane_point[2])
                                 if hit is not None:
                                     selected_joint_target = hit[:]
                                     active_dofs = list(range(min(6, max(1, selected_joint_idx))))
@@ -759,15 +964,17 @@ class SortingScenario:
                             except Exception:
                                 pass
 
-                    draw_arm_state("left", self.dual_arm_system.left_arm, left_q_live, gripper_closed=False)
-                    draw_arm_state("right", self.dual_arm_system.right_arm, right_q_live, gripper_closed=False)
+                if interactive_drag:
+                    left_positions = draw_arm_state("left", self.dual_arm_system.left_arm, left_q_live, gripper_closed=False)
+                    right_positions = draw_arm_state("right", self.dual_arm_system.right_arm, right_q_live, gripper_closed=False)
                     draw_target_marker(selected_joint_target, [0.1, 0.8, 1.0])
+                    draw_joint_panel(left_positions, right_positions)
                     selected_label = f"J{selected_joint_idx}" if selected_joint_idx is not None else "None"
                     drag_state = "dragging" if drag_active else "idle"
                     draw_status(
                         f"Joint Drag IK | arm={selected_arm} joint={selected_label} {drag_state} "
                         f"| err={last_drag_error:.4f}m ok={int(last_drag_success)} "
-                        f"| LMB pick+drag [Tab] arm [R] reset [Q] quit"
+                        f"| LMB drag joint | RMB rotate | wheel zoom | WASD/ZX camera | [R] reset [Q] quit"
                     )
                 else:
                     selected_joint_target = None
@@ -795,20 +1002,29 @@ class SortingScenario:
                             step_once = False
 
                     close_state = int(frame >= frame_count * 0.2 and frame <= frame_count * 0.72)
-                    draw_arm_state("left", self.dual_arm_system.left_arm, left_q_live, gripper_closed=bool(close_state))
-                    draw_arm_state("right", self.dual_arm_system.right_arm, right_q_live, gripper_closed=bool(close_state))
+                    left_positions = draw_arm_state("left", self.dual_arm_system.left_arm, left_q_live, gripper_closed=bool(close_state))
+                    right_positions = draw_arm_state("right", self.dual_arm_system.right_arm, right_q_live, gripper_closed=bool(close_state))
                     draw_target_marker(None, [0.1, 0.8, 1.0])
+                    draw_joint_panel(left_positions, right_positions)
 
                     mode_text = "PAUSED" if paused else "RUN"
-                    draw_status(f"Frame {frame + 1}/{frame_count} | {mode_text} | [Space] pause [N] step [R] reset [Q] quit")
+                    draw_status(
+                        f"Frame {frame + 1}/{frame_count} | {mode_text} | "
+                        f"RMB rotate | wheel zoom | WASD/ZX camera | [Space] pause [N] step [R] reset [Q] quit"
+                    )
 
                 p.stepSimulation()
                 if realtime:
                     time.sleep(max(0.0, 1.0 / max(1, fps)))
         finally:
-            for item_id in static_ids:
+            for item_id in static_debug_ids:
                 try:
                     p.removeUserDebugItem(item_id)
+                except Exception:
+                    pass
+            for body_id in static_body_ids:
+                try:
+                    p.removeBody(body_id)
                 except Exception:
                     pass
             if p.isConnected():
