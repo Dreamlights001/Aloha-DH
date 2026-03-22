@@ -941,7 +941,8 @@ class SortingScenario:
 
                         lsx, lsy = gp.left_stick
                         rsx, rsy = gp.right_stick
-                        camera_yaw += rsx * 2.2
+                        # Keep gamepad yaw direction consistent with expected orbit behavior.
+                        camera_yaw -= rsx * 2.2
                         camera_pitch += -rsy * 1.8
                         camera_distance = max(0.4, camera_distance + (gp.left_trigger - gp.right_trigger) * 0.03)
                         yaw_rad = math.radians(camera_yaw)
