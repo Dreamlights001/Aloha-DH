@@ -945,8 +945,11 @@ class SortingScenario:
                         camera_pitch += -rsy * 1.8
                         camera_distance = max(0.4, camera_distance + (gp.left_trigger - gp.right_trigger) * 0.03)
                         yaw_rad = math.radians(camera_yaw)
-                        right_axis = [-math.sin(yaw_rad), math.cos(yaw_rad), 0.0]
-                        forward_axis = [math.cos(yaw_rad), math.sin(yaw_rad), 0.0]
+                        # Camera-relative pan basis:
+                        # right stick X/left stick X should move to screen-right,
+                        # and stick forward should move to screen-forward.
+                        right_axis = [math.cos(yaw_rad), math.sin(yaw_rad), 0.0]
+                        forward_axis = [-math.sin(yaw_rad), math.cos(yaw_rad), 0.0]
                         if drag_active and drag_mode_enabled:
                             gp_drag_dx = lsx
                             gp_drag_dy = lsy
@@ -1111,8 +1114,8 @@ class SortingScenario:
                                 selected_joint_target = arm_obj.point_position(q_live, selected_joint_idx)
 
                             yaw_rad = math.radians(camera_yaw)
-                            right_axis = [-math.sin(yaw_rad), math.cos(yaw_rad), 0.0]
-                            forward_axis = [math.cos(yaw_rad), math.sin(yaw_rad), 0.0]
+                            right_axis = [math.cos(yaw_rad), math.sin(yaw_rad), 0.0]
+                            forward_axis = [-math.sin(yaw_rad), math.cos(yaw_rad), 0.0]
                             selected_joint_target = [
                                 selected_joint_target[0] + (right_axis[0] * gp_drag_dx - forward_axis[0] * gp_drag_dy) * 0.012,
                                 selected_joint_target[1] + (right_axis[1] * gp_drag_dx - forward_axis[1] * gp_drag_dy) * 0.012,
