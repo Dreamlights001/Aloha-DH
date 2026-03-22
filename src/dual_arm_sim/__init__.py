@@ -18,6 +18,7 @@ from .config import (
     SORTING_BINS,
 )
 from .io_utils import repo_root_from_file, resolve_animation_output_path
+from .input_controls import GamepadInputManager, GamepadState
 from .platform_utils import (
     RuntimeInfo,
     configure_matplotlib_runtime,
@@ -47,6 +48,8 @@ __all__ = [
     "SORTING_BINS",
     "repo_root_from_file",
     "resolve_animation_output_path",
+    "GamepadState",
+    "GamepadInputManager",
     "RuntimeInfo",
     "configure_matplotlib_runtime",
     "default_mpl_config_dir",

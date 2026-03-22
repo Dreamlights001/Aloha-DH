@@ -3,6 +3,7 @@
 该项目用于机械设计前期运动学验证，默认采用 **ALOHA ViperX-300 6DOF 官方参数**，并支持：
 - Matplotlib 动画导出
 - PyBullet 实时交互拖拽（任意关节点 IK）
+- Xbox / 盖世小鸡等手柄交互（pygame）
 - Windows / macOS / WSL / Ubuntu 运行兼容
 
 ## 1. 官方参数来源
@@ -55,6 +56,10 @@ python examples/run_sorting_demo.py --viz pybullet --kinematics poe
 - `--kinematics poe|mdh`：默认 `poe`（官方 ALOHA/VX300S 螺旋轴模型）
 - `--kinematics-print-step N`：每 N 帧在终端打印一次运动学矩阵
 - `--kinematics-prefix name`：设置 `/output/name_left|right.(csv|json)` 前缀
+- `--input-device auto|mouse|gamepad`：交互输入策略
+- `--gamepad-enable / --no-gamepad`：启用/禁用手柄
+- `--ui-style industrial|minimal`：交互 HUD 风格
+- `--drag-mode default_drag|default_normal`：默认鼠标模式
 
 PyBullet 交互按键：
 - `Space` 暂停/继续
@@ -65,6 +70,17 @@ PyBullet 交互按键：
 - 鼠标右键拖拽：旋转视角
 - 鼠标滚轮：缩放
 - `W/A/S/D`：俯仰/偏航微调；`Z/X`：距离微调
+- `M`：切换鼠标普通模式 / 拖拽模式（右上角也有模式按钮）
+
+手柄默认映射（Xbox / GameSir 兼容）：
+- 左摇杆：平移视角目标（拖拽时用于目标微调）
+- 右摇杆：旋转视角
+- 扳机：缩放
+- `LB/RB`：左右臂切换
+- 方向键：关节编号切换
+- `A/B`：开始/取消拖拽
+- `X`：切换普通/拖拽模式
+- `Start`：暂停/继续
 
 无 GUI 环境（如部分 Ubuntu Server/WSL 无图形）会自动回退 PyBullet `DIRECT` 模式并单次回放，不会卡住。
 
@@ -79,6 +95,7 @@ PyBullet 交互按键：
 - 关节轴模式（ALOHA 6DOF）：`z/y/y/x/y/x`（waist/shoulder/elbow/forearm_roll/wrist_angle/wrist_rotate）
 - 坐标轴刻度：每 0.25m 一个刻度
 - 右侧实时面板：显示左右臂 `J1..J6` 的 `^0p_i=(x,y,z)`
+- 工业风 HUD：显示输入源、模式状态、手柄连接状态、按钮化模式切换
 
 ## 6. 运动学输出
 

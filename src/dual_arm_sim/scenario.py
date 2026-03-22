@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Sequence, Tuple
 
 from .config import SORTING_BINS
+from .input_controls import GamepadInputManager
 from .math3d import vector_add, vector_scale
 from .robot import DualArmSystem, RobotArm6DOF
 
@@ -488,6 +489,10 @@ class SortingScenario:
         prefer_gui: bool = True,
         allow_headless_fallback: bool = True,
         enable_drag_target: bool = False,
+        input_device: str = "auto",
+        gamepad_enabled: bool = True,
+        ui_style: str = "industrial",
+        default_drag_mode: bool = True,
     ) -> str:
         """Realtime interactive visualization mode via PyBullet GUI."""
         self._require_pybullet()
@@ -527,6 +532,12 @@ class SortingScenario:
         frame_count = min(len(left_traj), len(right_traj))
         if frame_count == 0:
             raise ValueError("left_traj/right_traj must contain at least one frame")
+        input_device = str(input_device).strip().lower()
+        if input_device not in {"auto", "mouse", "gamepad"}:
+            input_device = "auto"
+        ui_style = str(ui_style).strip().lower()
+        if ui_style not in {"industrial", "minimal"}:
+            ui_style = "industrial"
 
         left_q_live = left_traj[0][:]
         right_q_live = right_traj[0][:]
@@ -534,10 +545,14 @@ class SortingScenario:
         selected_joint_idx: int | None = None
         selected_joint_target: List[float] | None = None
         drag_active = False
+        drag_mode_enabled = bool(default_drag_mode)
         drag_plane_point = [0.0, 0.0, self.conveyor_config["height"] + 0.2]
         drag_plane_normal = [0.0, 0.0, 1.0]
         last_drag_error = 0.0
         last_drag_success = False
+        input_source = "mouse"
+        gamepad_manager = GamepadInputManager(enabled=gamepad_enabled and connection_mode_name == "GUI")
+        gamepad_name = ""
 
         mouse_button_event = getattr(p, "MOUSE_BUTTON_EVENT", 2)
         mouse_move_event = getattr(p, "MOUSE_MOVE_EVENT", 1)
@@ -723,6 +738,8 @@ class SortingScenario:
             upsert_line("target_z", [center[0], center[1], center[2] - d], [center[0], center[1], center[2] + d], color, 4.0)
 
         def draw_joint_panel(left_positions: Sequence[Sequence[float]], right_positions: Sequence[Sequence[float]]) -> None:
+            if ui_style == "minimal":
+                return
             yaw_rad = math.radians(camera_yaw)
             right_axis = [-math.sin(yaw_rad), math.cos(yaw_rad), 0.0]
             anchor = [
@@ -732,6 +749,14 @@ class SortingScenario:
             ]
             dz = 0.065
             upsert_text("hud_title", "Joint Positions ^0p_i (m)", anchor, [0.95, 0.95, 0.6], 1.1)
+            upsert_text(
+                "hud_meta",
+                f"Input={input_source} | Mode={'DRAG' if drag_mode_enabled else 'NORMAL'}"
+                + (f" | Pad={gamepad_name}" if gamepad_name else ""),
+                [anchor[0], anchor[1], anchor[2] - dz * 0.6],
+                [0.8, 0.9, 1.0],
+                0.95,
+            )
             left_base = left_positions[0]
             right_base = right_positions[0]
             for i in range(1, 7):
@@ -753,6 +778,28 @@ class SortingScenario:
                     [1.0, 1.0, 0.25],
                     1.0,
                 )
+
+        def get_mode_button_rect(cam_info) -> Tuple[int, int, int, int]:
+            width = max(1, int(cam_info[0]))
+            x0 = max(10, width - 320)
+            y0 = 18
+            x1 = max(x0 + 120, width - 12)
+            y1 = 60
+            return x0, y0, x1, y1
+
+        def draw_mode_toggle_button() -> None:
+            if ui_style == "minimal":
+                return
+            yaw_rad = math.radians(camera_yaw)
+            right_axis = [-math.sin(yaw_rad), math.cos(yaw_rad), 0.0]
+            anchor = [
+                camera_target[0] + right_axis[0] * 1.02,
+                camera_target[1] + right_axis[1] * 1.02,
+                camera_target[2] + 0.82,
+            ]
+            mode_text = "DRAG" if drag_mode_enabled else "NORMAL"
+            mode_col = [0.1, 1.0, 0.4] if drag_mode_enabled else [0.95, 0.95, 0.95]
+            upsert_text("hud_mode_btn", f"[M] Mode: {mode_text}", anchor, mode_col, 1.25)
 
         def pick_joint_index(
             arm: RobotArm6DOF,
@@ -797,10 +844,39 @@ class SortingScenario:
 
         try:
             while p.isConnected():
-                interactive_drag = enable_drag_target and connection_mode_name == "GUI"
+                interactive_drag = (
+                    enable_drag_target
+                    and connection_mode_name == "GUI"
+                    and drag_mode_enabled
+                )
+                gp_drag_dx = 0.0
+                gp_drag_dy = 0.0
+                gp_drag_dz = 0.0
                 keys = p.getKeyboardEvents() if connection_mode_name == "GUI" else {}
+                gp = gamepad_manager.poll() if connection_mode_name == "GUI" else None
+                use_gamepad = bool(
+                    gp is not None
+                    and gp.connected
+                    and gamepad_enabled
+                    and input_device in {"auto", "gamepad"}
+                )
+                if use_gamepad:
+                    input_source = "gamepad"
+                    gamepad_name = gp.device_name
+                elif input_device == "gamepad" and gamepad_enabled and connection_mode_name == "GUI":
+                    input_source = "mouse(fallback)"
+                    gamepad_name = ""
+                else:
+                    input_source = "mouse"
+                    gamepad_name = ""
 
                 if connection_mode_name == "GUI":
+                    if ord("m") in keys and keys[ord("m")] & p.KEY_WAS_TRIGGERED:
+                        drag_mode_enabled = not drag_mode_enabled
+                        drag_active = False
+                    if ord("M") in keys and keys[ord("M")] & p.KEY_WAS_TRIGGERED:
+                        drag_mode_enabled = not drag_mode_enabled
+                        drag_active = False
                     if ord(" ") in keys and keys[ord(" ")] & p.KEY_WAS_TRIGGERED:
                         paused = not paused
                     if ord("n") in keys and keys[ord("n")] & p.KEY_WAS_TRIGGERED:
@@ -840,6 +916,46 @@ class SortingScenario:
                         camera_distance = max(0.4, camera_distance + dist_delta)
                         apply_camera()
 
+                    if use_gamepad and gp is not None:
+                        if "start" in gp.buttons_triggered:
+                            paused = not paused
+                        if "lb" in gp.buttons_triggered:
+                            selected_arm = "left"
+                        if "rb" in gp.buttons_triggered:
+                            selected_arm = "right"
+                        if "x" in gp.buttons_triggered:
+                            drag_mode_enabled = not drag_mode_enabled
+                            drag_active = False
+                        if "a" in gp.buttons_triggered:
+                            drag_active = True
+                        if "b" in gp.buttons_triggered:
+                            drag_active = False
+                            selected_joint_target = None
+
+                        dpad_x, dpad_y = gp.dpad
+                        if dpad_y != 0:
+                            if selected_joint_idx is None:
+                                selected_joint_idx = 1 if dpad_y > 0 else 6
+                            else:
+                                selected_joint_idx = max(1, min(6, selected_joint_idx + dpad_y))
+
+                        lsx, lsy = gp.left_stick
+                        rsx, rsy = gp.right_stick
+                        camera_yaw += rsx * 2.2
+                        camera_pitch += -rsy * 1.8
+                        camera_distance = max(0.4, camera_distance + (gp.left_trigger - gp.right_trigger) * 0.03)
+                        yaw_rad = math.radians(camera_yaw)
+                        right_axis = [-math.sin(yaw_rad), math.cos(yaw_rad), 0.0]
+                        forward_axis = [math.cos(yaw_rad), math.sin(yaw_rad), 0.0]
+                        if drag_active and drag_mode_enabled:
+                            gp_drag_dx = lsx
+                            gp_drag_dy = lsy
+                            gp_drag_dz = float(dpad_x)
+                        else:
+                            camera_target[0] += (right_axis[0] * lsx - forward_axis[0] * lsy) * 0.016
+                            camera_target[1] += (right_axis[1] * lsx - forward_axis[1] * lsy) * 0.016
+                        apply_camera()
+
                     escape_codes = [27]
                     for attr_name in ("B3G_ESCAPE", "B3G_ESC"):
                         code = getattr(p, attr_name, None)
@@ -874,6 +990,21 @@ class SortingScenario:
                             camera_yaw += 0.18 * dx
                             camera_pitch -= 0.18 * dy
                             apply_camera()
+
+                        if (
+                            event_type == mouse_button_event
+                            and button_idx == mouse_left
+                            and (button_state & p.KEY_WAS_TRIGGERED)
+                        ):
+                            try:
+                                cam_info = p.getDebugVisualizerCamera()
+                                x0, y0, x1, y1 = get_mode_button_rect(cam_info)
+                                if x0 <= mx <= x1 and y0 <= my <= y1:
+                                    drag_mode_enabled = not drag_mode_enabled
+                                    drag_active = False
+                                    continue
+                            except Exception:
+                                pass
 
                         if not interactive_drag:
                             continue
@@ -964,17 +1095,62 @@ class SortingScenario:
                             except Exception:
                                 pass
 
+                    if use_gamepad and interactive_drag and drag_active:
+                        try:
+                            if selected_joint_idx is None:
+                                selected_joint_idx = 6
+                            selected_joint_idx = max(1, min(6, selected_joint_idx))
+                            arm_obj = (
+                                self.dual_arm_system.left_arm
+                                if selected_arm == "left"
+                                else self.dual_arm_system.right_arm
+                            )
+                            q_live = left_q_live if selected_arm == "left" else right_q_live
+
+                            if selected_joint_target is None:
+                                selected_joint_target = arm_obj.point_position(q_live, selected_joint_idx)
+
+                            yaw_rad = math.radians(camera_yaw)
+                            right_axis = [-math.sin(yaw_rad), math.cos(yaw_rad), 0.0]
+                            forward_axis = [math.cos(yaw_rad), math.sin(yaw_rad), 0.0]
+                            selected_joint_target = [
+                                selected_joint_target[0] + (right_axis[0] * gp_drag_dx - forward_axis[0] * gp_drag_dy) * 0.012,
+                                selected_joint_target[1] + (right_axis[1] * gp_drag_dx - forward_axis[1] * gp_drag_dy) * 0.012,
+                                selected_joint_target[2] + gp_drag_dz * 0.008,
+                            ]
+                            active_dofs = list(range(min(6, max(1, selected_joint_idx))))
+                            ik = arm_obj.inverse_kinematics_point_position(
+                                selected_joint_target,
+                                point_index=selected_joint_idx,
+                                initial_angles=q_live,
+                                active_dofs=active_dofs,
+                                max_iters=60,
+                                tol=1e-3,
+                                damping=5e-3,
+                                step_size=0.75,
+                            )
+                            if selected_arm == "left":
+                                left_q_live = ik.joint_angles
+                            else:
+                                right_q_live = ik.joint_angles
+                            last_drag_error = ik.error_norm
+                            last_drag_success = ik.success
+                        except Exception:
+                            pass
+
                 if interactive_drag:
                     left_positions = draw_arm_state("left", self.dual_arm_system.left_arm, left_q_live, gripper_closed=False)
                     right_positions = draw_arm_state("right", self.dual_arm_system.right_arm, right_q_live, gripper_closed=False)
                     draw_target_marker(selected_joint_target, [0.1, 0.8, 1.0])
                     draw_joint_panel(left_positions, right_positions)
+                    draw_mode_toggle_button()
                     selected_label = f"J{selected_joint_idx}" if selected_joint_idx is not None else "None"
                     drag_state = "dragging" if drag_active else "idle"
                     draw_status(
                         f"Joint Drag IK | arm={selected_arm} joint={selected_label} {drag_state} "
                         f"| err={last_drag_error:.4f}m ok={int(last_drag_success)} "
-                        f"| LMB drag joint | RMB rotate | wheel zoom | WASD/ZX camera | [R] reset [Q] quit"
+                        f"| mode={'DRAG' if drag_mode_enabled else 'NORMAL'} src={input_source} "
+                        f"| LMB drag joint | RMB rotate | wheel zoom | WASD/ZX camera | [M] mode [R] reset [Q] quit"
                     )
                 else:
                     selected_joint_target = None
@@ -1006,11 +1182,13 @@ class SortingScenario:
                     right_positions = draw_arm_state("right", self.dual_arm_system.right_arm, right_q_live, gripper_closed=bool(close_state))
                     draw_target_marker(None, [0.1, 0.8, 1.0])
                     draw_joint_panel(left_positions, right_positions)
+                    draw_mode_toggle_button()
 
                     mode_text = "PAUSED" if paused else "RUN"
                     draw_status(
                         f"Frame {frame + 1}/{frame_count} | {mode_text} | "
-                        f"RMB rotate | wheel zoom | WASD/ZX camera | [Space] pause [N] step [R] reset [Q] quit"
+                        f"mode={'DRAG' if drag_mode_enabled else 'NORMAL'} src={input_source} | "
+                        f"RMB rotate | wheel zoom | WASD/ZX camera | [M] mode [Space] pause [N] step [R] reset [Q] quit"
                     )
 
                 p.stepSimulation()

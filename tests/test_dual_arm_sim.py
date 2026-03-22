@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from dual_arm_sim import (  # noqa: E402
     ARM_OFFSET,
     DEFAULT_ARM_MODEL,
+    GamepadInputManager,
     JOINT_LIMITS_EXAMPLE,
     MDH_PARAMS_EXAMPLE,
     MODEL_SPEC,
@@ -193,6 +194,23 @@ class TestPlatformUtils(unittest.TestCase):
     def test_configure_matplotlib_runtime_creates_dir(self) -> None:
         path = configure_matplotlib_runtime(env={})
         self.assertTrue(path.exists())
+
+
+class TestInputControls(unittest.TestCase):
+    def test_gamepad_manager_disabled_returns_safe_state(self) -> None:
+        manager = GamepadInputManager(enabled=False)
+        state = manager.poll()
+        self.assertFalse(state.connected)
+        self.assertEqual(state.device_name, "")
+        self.assertEqual(state.left_stick, (0.0, 0.0))
+        self.assertEqual(state.right_stick, (0.0, 0.0))
+        self.assertEqual(state.dpad, (0, 0))
+
+    def test_deadzone_helper(self) -> None:
+        v_small = GamepadInputManager._apply_deadzone(0.1, deadzone=0.2)
+        v_large = GamepadInputManager._apply_deadzone(0.6, deadzone=0.2)
+        self.assertEqual(v_small, 0.0)
+        self.assertGreater(v_large, 0.0)
 
 
 if __name__ == "__main__":

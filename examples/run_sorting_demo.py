@@ -111,6 +111,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable automatic fallback from PyBullet GUI to DIRECT mode",
     )
     parser.add_argument(
+        "--input-device",
+        choices=("auto", "mouse", "gamepad"),
+        default="auto",
+        help="Interactive input source policy for PyBullet GUI.",
+    )
+    parser.add_argument(
+        "--gamepad-enable",
+        dest="gamepad_enable",
+        action="store_true",
+        default=True,
+        help="Enable gamepad control (pygame backend).",
+    )
+    parser.add_argument(
+        "--no-gamepad",
+        dest="gamepad_enable",
+        action="store_false",
+        help="Disable gamepad control and use mouse/keyboard only.",
+    )
+    parser.add_argument(
+        "--ui-style",
+        choices=("industrial", "minimal"),
+        default="industrial",
+        help="PyBullet HUD style.",
+    )
+    parser.add_argument(
+        "--drag-mode",
+        choices=("default_drag", "default_normal"),
+        default="default_drag",
+        help="Default mouse mode in PyBullet GUI.",
+    )
+    parser.add_argument(
         "--no-kinematics-output",
         action="store_true",
         help="Disable kinematics matrix/coordinate export and terminal print",
@@ -374,6 +405,10 @@ def main() -> None:
             prefer_gui=prefer_gui,
             allow_headless_fallback=not args.no_headless_fallback,
             enable_drag_target=True,
+            input_device=args.input_device,
+            gamepad_enabled=args.gamepad_enable,
+            ui_style=args.ui_style,
+            default_drag_mode=(args.drag_mode == "default_drag"),
         )
         if mode == "DIRECT":
             print("PyBullet mode: DIRECT (headless). GUI unavailable or disabled.")
@@ -381,7 +416,15 @@ def main() -> None:
             print("PyBullet mode: GUI")
             print(
                 "Interactive drag: LMB pick/drag any joint; RMB rotate view; "
-                "mouse wheel zoom; WASD/ZX camera tweak; R reset; Q/Esc quit."
+                "mouse wheel zoom; WASD/ZX camera tweak; M toggle drag/normal mode; "
+                "R reset; Q/Esc quit."
+            )
+            print(
+                "Input:",
+                f"device={args.input_device}",
+                f"gamepad_enabled={args.gamepad_enable}",
+                f"ui_style={args.ui_style}",
+                f"drag_mode={args.drag_mode}",
             )
 
     if args.viz in ("matplotlib", "both"):
