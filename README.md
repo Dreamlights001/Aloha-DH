@@ -60,6 +60,10 @@ python examples/run_sorting_demo.py --viz pybullet --kinematics poe
 - `--gamepad-enable / --no-gamepad`：启用/禁用手柄
 - `--ui-style industrial|minimal`：交互 HUD 风格
 - `--drag-mode default_drag|default_normal`：默认鼠标模式
+- 右侧 `Params` 栏：
+  - `Mode Toggle [click]`：点击切换 `DRAG/NORMAL`
+  - `Mode State`：当前模式状态（0=Normal，1=Drag）
+  - `L-J1..J6 / R-J1..J6` 的 `^0p_i` 坐标（x/y/z，米，实时刷新）
 
 PyBullet 交互按键：
 - `Space` 暂停/继续
@@ -70,7 +74,7 @@ PyBullet 交互按键：
 - 鼠标右键拖拽：旋转视角
 - 鼠标滚轮：缩放
 - `W/A/S/D`：俯仰/偏航微调；`Z/X`：距离微调
-- `M`：切换鼠标普通模式 / 拖拽模式（右上角也有模式按钮）
+- `M`：切换鼠标普通模式 / 拖拽模式（与 Params 栏模式开关联动）
 
 手柄默认映射（Xbox / GameSir 兼容）：
 - 左摇杆：平移视角目标（拖拽时用于目标微调）

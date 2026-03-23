@@ -561,6 +561,17 @@ class SortingScenario:
         key_is_down = getattr(p, "KEY_IS_DOWN", 1)
         camera_drag_active = False
         camera_last_xy: Tuple[int, int] | None = None
+        params_panel_enabled = bool(
+            connection_mode_name == "GUI"
+            and hasattr(p, "addUserDebugParameter")
+            and hasattr(p, "readUserDebugParameter")
+        )
+        params_can_reset = bool(params_panel_enabled and hasattr(p, "removeAllUserParameters"))
+        params_mode_button_id: int | None = None
+        params_mode_button_value = 0.0
+        params_refresh_every_frames = 2
+        params_last_refresh_frame = -10**9
+        params_initialized = False
 
         static_debug_ids: List[int] = []
         static_body_ids: List[int] = []
@@ -738,7 +749,7 @@ class SortingScenario:
             upsert_line("target_z", [center[0], center[1], center[2] - d], [center[0], center[1], center[2] + d], color, 4.0)
 
         def draw_joint_panel(left_positions: Sequence[Sequence[float]], right_positions: Sequence[Sequence[float]]) -> None:
-            if ui_style == "minimal":
+            if ui_style == "minimal" or params_panel_enabled:
                 return
             yaw_rad = math.radians(camera_yaw)
             right_axis = [-math.sin(yaw_rad), math.cos(yaw_rad), 0.0]
@@ -788,7 +799,7 @@ class SortingScenario:
             return x0, y0, x1, y1
 
         def draw_mode_toggle_button() -> None:
-            if ui_style == "minimal":
+            if ui_style == "minimal" or params_panel_enabled:
                 return
             yaw_rad = math.radians(camera_yaw)
             right_axis = [-math.sin(yaw_rad), math.cos(yaw_rad), 0.0]
@@ -800,6 +811,87 @@ class SortingScenario:
             mode_text = "DRAG" if drag_mode_enabled else "NORMAL"
             mode_col = [0.1, 1.0, 0.4] if drag_mode_enabled else [0.95, 0.95, 0.95]
             upsert_text("hud_mode_btn", f"[M] Mode: {mode_text}", anchor, mode_col, 1.25)
+
+        def add_user_parameter_safe(name: str, low: float, high: float, value: float) -> int:
+            try:
+                return int(p.addUserDebugParameter(name, float(low), float(high), float(value)))
+            except Exception:
+                return -1
+
+        def read_user_parameter_safe(param_id: int | None) -> float | None:
+            if param_id is None or param_id < 0:
+                return None
+            try:
+                return float(p.readUserDebugParameter(param_id))
+            except Exception:
+                return None
+
+        def add_readonly_parameter(name: str, value: float) -> None:
+            eps = 1e-6
+            _ = add_user_parameter_safe(name, value - eps, value + eps, value)
+
+        def poll_params_mode_toggle() -> bool:
+            nonlocal drag_mode_enabled
+            nonlocal drag_active
+            nonlocal params_mode_button_value
+
+            if not params_panel_enabled:
+                return False
+            current_value = read_user_parameter_safe(params_mode_button_id)
+            if current_value is None:
+                return False
+            if current_value > params_mode_button_value + 0.5:
+                drag_mode_enabled = not drag_mode_enabled
+                drag_active = False
+                params_mode_button_value = current_value
+                return True
+            params_mode_button_value = current_value
+            return False
+
+        def refresh_params_panel(
+            left_positions: Sequence[Sequence[float]],
+            right_positions: Sequence[Sequence[float]],
+            frame_idx: int,
+            force: bool = False,
+        ) -> None:
+            nonlocal params_mode_button_id
+            nonlocal params_mode_button_value
+            nonlocal params_last_refresh_frame
+            nonlocal params_initialized
+
+            if not params_panel_enabled:
+                return
+            if not force and params_initialized and (frame_idx - params_last_refresh_frame) < params_refresh_every_frames:
+                return
+            if params_can_reset:
+                try:
+                    p.removeAllUserParameters()
+                except Exception:
+                    return
+            elif params_initialized:
+                return
+
+            params_mode_button_id = add_user_parameter_safe("Mode Toggle [click]", 1.0, 0.0, 0.0)
+            params_mode_button_value = 0.0
+            add_readonly_parameter("Mode State (0=NORMAL 1=DRAG)", float(int(drag_mode_enabled)))
+
+            left_base = left_positions[0]
+            right_base = right_positions[0]
+            for arm_prefix, positions, base in (
+                ("L", left_positions, left_base),
+                ("R", right_positions, right_base),
+            ):
+                for joint_idx in range(1, 7):
+                    pos = positions[joint_idx]
+                    px = pos[0] - base[0]
+                    py = pos[1] - base[1]
+                    pz = pos[2] - base[2]
+                    add_readonly_parameter(f"{arm_prefix}-J{joint_idx} ^0p_{joint_idx} x(m)", float(px))
+                    add_readonly_parameter(f"{arm_prefix}-J{joint_idx} ^0p_{joint_idx} y(m)", float(py))
+                    add_readonly_parameter(f"{arm_prefix}-J{joint_idx} ^0p_{joint_idx} z(m)", float(pz))
+
+            params_initialized = True
+            params_last_refresh_frame = frame_idx
 
         def pick_joint_index(
             arm: RobotArm6DOF,
@@ -844,6 +936,7 @@ class SortingScenario:
 
         try:
             while p.isConnected():
+                mode_changed = False
                 interactive_drag = (
                     enable_drag_target
                     and connection_mode_name == "GUI"
@@ -874,9 +967,11 @@ class SortingScenario:
                     if ord("m") in keys and keys[ord("m")] & p.KEY_WAS_TRIGGERED:
                         drag_mode_enabled = not drag_mode_enabled
                         drag_active = False
+                        mode_changed = True
                     if ord("M") in keys and keys[ord("M")] & p.KEY_WAS_TRIGGERED:
                         drag_mode_enabled = not drag_mode_enabled
                         drag_active = False
+                        mode_changed = True
                     if ord(" ") in keys and keys[ord(" ")] & p.KEY_WAS_TRIGGERED:
                         paused = not paused
                     if ord("n") in keys and keys[ord("n")] & p.KEY_WAS_TRIGGERED:
@@ -926,6 +1021,7 @@ class SortingScenario:
                         if "x" in gp.buttons_triggered:
                             drag_mode_enabled = not drag_mode_enabled
                             drag_active = False
+                            mode_changed = True
                         if "a" in gp.buttons_triggered:
                             drag_active = True
                         if "b" in gp.buttons_triggered:
@@ -959,6 +1055,15 @@ class SortingScenario:
                             camera_target[0] += (right_axis[0] * lsx - forward_axis[0] * lsy) * 0.016
                             camera_target[1] += (right_axis[1] * lsx - forward_axis[1] * lsy) * 0.016
                         apply_camera()
+
+                    if poll_params_mode_toggle():
+                        mode_changed = True
+
+                    interactive_drag = (
+                        enable_drag_target
+                        and connection_mode_name == "GUI"
+                        and drag_mode_enabled
+                    )
 
                     escape_codes = [27]
                     for attr_name in ("B3G_ESCAPE", "B3G_ESC"):
@@ -999,6 +1104,7 @@ class SortingScenario:
                             event_type == mouse_button_event
                             and button_idx == mouse_left
                             and (button_state & p.KEY_WAS_TRIGGERED)
+                            and not params_panel_enabled
                         ):
                             try:
                                 cam_info = p.getDebugVisualizerCamera()
@@ -1006,6 +1112,7 @@ class SortingScenario:
                                 if x0 <= mx <= x1 and y0 <= my <= y1:
                                     drag_mode_enabled = not drag_mode_enabled
                                     drag_active = False
+                                    mode_changed = True
                                     continue
                             except Exception:
                                 pass
@@ -1148,6 +1255,12 @@ class SortingScenario:
                     draw_target_marker(selected_joint_target, [0.1, 0.8, 1.0])
                     draw_joint_panel(left_positions, right_positions)
                     draw_mode_toggle_button()
+                    refresh_params_panel(
+                        left_positions=left_positions,
+                        right_positions=right_positions,
+                        frame_idx=frame,
+                        force=mode_changed,
+                    )
                     selected_label = f"J{selected_joint_idx}" if selected_joint_idx is not None else "None"
                     drag_state = "dragging" if drag_active else "idle"
                     draw_status(
@@ -1187,6 +1300,12 @@ class SortingScenario:
                     draw_target_marker(None, [0.1, 0.8, 1.0])
                     draw_joint_panel(left_positions, right_positions)
                     draw_mode_toggle_button()
+                    refresh_params_panel(
+                        left_positions=left_positions,
+                        right_positions=right_positions,
+                        frame_idx=frame,
+                        force=mode_changed,
+                    )
 
                     mode_text = "PAUSED" if paused else "RUN"
                     draw_status(
